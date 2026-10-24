@@ -23,7 +23,8 @@ npm test            # unit + Worker tests
 npm run build       # frame + admin into frame/dist
 npm run check       # Chrome 106 compat check + lint + bundle size
 npm run dev:frame   # frame shell with mock data at http://localhost:5173/?mock=1
-npm run e2e         # Chromium 106 screenshots of A, B and night (downloads a pinned Chromium)
+npx @puppeteer/browsers install chromium@1036826 --path test/e2e/.browsers   # once
+npm run e2e         # Chromium 106 screenshots of A, B and night into test/e2e/out/
 ```
 
 Runbooks for Chief and for operating the frame are in [docs/](docs/).

@@ -197,11 +197,11 @@ payment method:
 | Data | Store | Key or table | Why |
 | --- | --- | --- | --- |
 | Photo copies (display-sized JPEG, at most 1280×800, ~150–300 KB) | **KV** `FRAME_PHOTOS` | `p:<setId>:<n>` | Values up to 25 MiB. 300 photos ≈ 60–90 MB of the free 1 GB. Each photo is written once per set (≤ 300 writes against the free 1,000 a day). Streamed through the Worker, never public |
-| Blurred backdrop for portrait photos | D1 `photos.blur` | a tiny (32×20) JPEG as a data URL, ~1 KB | Upscaled on the frame, which blurs it for free. No extra KV write |
+| Blurred backdrop / placeholder (every photo) | D1 `photos.blur` | a tiny (32×20) JPEG as a data URL, ~1 KB | Upscaled on the frame, which blurs it for free. No extra KV write |
 | Photo sets and manifest | **D1** `FRAME_DB` | `photo_sets`, `photos` | The active set is one row flag, so swapping sets is atomic |
 | Ingest job state | D1 | `picker_jobs` | Lets ingest resume in batches (§7.4) |
 | Google grants (refresh + access tokens) | D1 `grants`, **AES-256-GCM encrypted** with `TOKEN_ENC_KEY` | rows `calendar`, `photos` | Two separate grants with separate refresh tokens. A DB dump alone is useless |
-| Weather and calendar caches | D1 `cache` | `weather`, `calendar:<yyyy-mm-dd>` | Cron-filled, with `fetched_at` and `ok_at`. Stale data is served on errors |
+| Weather and calendar caches | D1 `cache` | `weather`, `calendar` (today and tomorrow in one row) | Cron-filled, with `fetched_at` and `ok_at`. Stale data is served on errors |
 | Reflection guide | D1 `reflection`, **encrypted** | single row | Private text, encrypted at rest, never logged, never in the repo |
 | Devices and heartbeats | D1 `devices` | `id`, `token_hash`, `last_seen`, `last_heartbeat`, `build` | Token hashes only |
 | Health timestamps | D1 `meta` | `photo_sync_at`, `weather_ok_at`, … | Read by `/api/health` |
@@ -236,8 +236,9 @@ account (the hub Workers use none).
   compares the hashes in constant time. A missing or unknown token gets **401 with no body detail**
   (fail closed).
 - **Photos:** `<img>` tags can't send headers, so `/api/state` returns **signed URLs**:
-  `/p/<setId>/<n>.jpg?exp=<unix>&sig=<HMAC-SHA256(URL_SIGNING_KEY, path|exp|deviceId)>`, valid for
-  2 h. `/p/*` checks the signature and expiry and streams from KV with `Cache-Control: private, max-age=3600`.
+  `/p/<setId>/<n>.jpg?d=<deviceId>&exp=<unix>&sig=<HMAC-SHA256(URL_SIGNING_KEY, path|exp|deviceId)>`.
+  `exp` is rounded up to the next hour plus 1 h, so a URL stays the same for about an hour and the
+  WebView can cache it; the Worker accepts `exp` up to 3 h ahead and also rejects revoked devices. `/p/*` checks the signature and expiry and streams from KV with `Cache-Control: private, max-age=3600`.
 - **Rotation:** create a new token, re-save the kiosk URL over USB ADB, then revoke the old device on
   `/admin` (a `revoked_at` flag, not a delete). Planned yearly, or right away on suspicion of a leak.
 - **If the token leaks:** whoever holds it can read today's events, the weather, the current
@@ -293,23 +294,29 @@ account (the hub Workers use none).
    desktop-to-phone handoff.
 3. Stephen opens the album in Google Photos' picker UI and selects photos. **The Picker can't be
    pre-filtered to one album, so he has to browse to it.**
-4. The admin page polls `GET /admin/api/picker/<id>` at `pollingConfig.pollInterval`. The Worker calls
-   `sessions.get` until `mediaItemsSet == true`, or stops at `timeoutIn`.
-5. **Ingest in batches**, because free-plan Workers allow 50 subrequests per invocation. The admin page
-   calls `POST /admin/api/picker/<id>/ingest?cursor=…` repeatedly. Each call:
+4. The admin page calls `POST /admin/api/picker/<id>/step` every 5 s. While the job is `picking`, the
+   Worker calls `sessions.get` until `mediaItemsSet == true`, or fails the job at `timeoutIn`.
+5. **Ingest in batches**, because free-plan Workers allow 50 subrequests per invocation. The same
+   `step` call, once the job is `ingesting`, does one batch (the cursor is kept in `picker_jobs`, and a
+   reloaded admin page resumes an unfinished job). Each call:
    - lists one page of `mediaItems?sessionId=…`;
    - keeps only `image/*` items (videos are skipped and counted);
-   - fetches `baseUrl=w1280-h800` (stored in KV) and, for portrait photos, `baseUrl=w32-h20` (stored
-     as a data URL in D1), **with the OAuth bearer header**. Base URLs expire after 60 min, so ingest
+   - fetches `baseUrl=w1280-h800` (stored in KV) and, for every photo, `baseUrl=w32-h20` (stored
+     as a data URL in D1, used as the blurred backdrop and as the placeholder while loading), **with
+     the OAuth bearer header**. Base URLs expire after 60 min, so ingest
      finishes within the session. At most 20 photos per call keeps it under 50 subrequests;
    - writes `p:<newSetId>:<n>` to KV and a `photos` row to D1;
    - saves its progress in `picker_jobs`.
 6. On completion it marks the new set active in one D1 statement (an atomic swap) and deletes the
-   Picker session (`DELETE /v1/sessions/<id>`). The previous set's KV keys get a 7-day expiration at
-   swap time, so KV cleans them up by itself with no delete calls.
+   Picker session (`DELETE /v1/sessions/<id>`). The previous set is marked retired; its KV keys are
+   **kept** (changed while building: setting an expiration on existing keys means re-writing them,
+   which would spend 300 of the 1,000 daily KV writes). Nothing is deleted automatically. A later,
+   manual "purge retired sets" admin action can delete them in batches under the 1,000 deletes a day
+   free limit. ~75 MB a set fits about 13 sets in the free 1 GB.
 7. Cap: `PHOTO_SET_MAX` = 300. The Picker's own `maxItemCount` is set to the same value. A full
-   300-photo set uses 300 of the 1,000 free KV writes a day; ingest refuses to start a second set the
-   same day if the KV write budget would pass 900.
+   300-photo set uses 300 of the 1,000 free KV writes a day. The Worker counts its own writes per UTC
+   day in a `kv_writes` table: starting a set is refused if today's count + 300 > 900, and a running
+   ingest pauses (and resumes the next UTC day) rather than pass 900.
 8. If ingest fails halfway, the old set stays active. The job can be resumed or discarded from `/admin`.
 
 **Policy check before Phase 4:** re-read the current Google Photos APIs terms on keeping copies of
@@ -546,7 +553,7 @@ There's no other recovery path, by design.
 The checks are listed with each phase in §16. Across all phases:
 - `npm test` covers unit tests (schedule including DST, idle, week picker, extractor on a **synthetic**
   guide, weather and calendar normalizers, signature verification).
-- Worker tests use `@cloudflare/vitest-pool-workers` with Miniflare D1 and KV. They prove that every
+- Worker tests use `@cloudflare/vitest-plugin` (the successor to `vitest-pool-workers`) with Miniflare D1 and KV. They prove that every
   `/api` and `/p` route returns 401 or 403 without valid credentials, and every `/admin` route without
   a valid Access JWT.
 - `npm run check` runs compat-check plus the linters plus a bundle-size check.
@@ -607,3 +614,24 @@ account work.
 
 Also decided while building (2026-10-24): **no R2**, because enabling it needs a payment method
 (§6). Photo bytes go in KV, everything else in D1.
+
+## 19. Build notes (2026-10-24)
+
+Changes made while building P0–P5, beyond the edits folded into the sections above:
+
+- **Layout.** The admin page lives in `frame/admin/` (built with the frame, served behind Access with
+  `Cache-Control: no-store`); admin handlers are one module, `worker/src/admin.js`. CLI helpers are in
+  `tools/lib/`. The admin page shows a link to the Picker, not a QR code.
+- **Health.** `/api/health` adds `alert: true` only for `frame_*` and `grant_*` problems (the ones Chief
+  emails about). `weather_stale`, `calendar_stale` and `reflection_no_current_week` are soft.
+- **Caches.** Workers' Cache API is a no-op on `workers.dev`, so every cache is a D1 row.
+- **Reflection.** The practice limit is 1,200 characters (the frame clamps on screen); themes 160.
+  The extractor was checked against the real guide's structure on the box (structure-only summary;
+  no text left the box or entered the repo).
+- **Mock mode.** `?mock=1` (with `&screen=a|b|night` and `&at=<ISO>`) ships in the production bundle;
+  it uses only built-in synthetic data and no token.
+- **e2e.** `puppeteer-core` is pinned to 19.11.1. Newer releases hang launching Chromium 106 (they use
+  newer CDP calls). Chromium 106 is r1036826 via `@puppeteer/browsers`.
+- **Deploy.** `deploy.yml` is gated on the repo variable `DEPLOY_ENABLED == 'true'` (unset). The D1 and
+  KV ids in `wrangler.jsonc` are zero placeholders until P0's dashboard steps, so a deploy would fail
+  until they're filled in.
