@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Frame</title>
+<link rel="stylesheet" href="./styles/frame.css">
+</head>
+<body class="screen-a">
+<div id="stage" class="stage"></div>
+
+<section id="screen-a" class="screen" aria-label="Photo first">
+  <div class="card">
+    <div class="clock-row">
+      <span class="time" data-bind="time"></span>
+      <span class="clock-side"><span class="ampm" data-bind="ampm"></span><span class="date" data-bind="shortDate"></span></span>
+    </div>
+    <div class="weather-line"><img class="wx-icon" data-bind="wxIcon" alt=""><span data-bind="wxNow"></span></div>
+    <div class="stale" data-bind="wxStale"></div>
+    <div class="allday" data-bind="allDay"></div>
+    <div class="next" data-bind="next"></div>
+    <div class="stale" data-bind="calStale"></div>
+    <div class="rule"></div>
+    <div class="refl"><span class="refl-theme" data-bind="reflTheme"></span><span class="refl-practice" data-bind="reflPractice"></span></div>
+  </div>
+</section>
+
+<section id="screen-b" class="screen" aria-label="Split">
+  <div class="rail">
+    <div class="clock-row big">
+      <span class="time" data-bind="time"></span>
+      <span class="ampm" data-bind="ampm"></span>
+    </div>
+    <div class="date" data-bind="longDate"></div>
+    <div class="weather-line big"><img class="wx-icon" data-bind="wxIcon" alt=""><span data-bind="wxNow"></span></div>
+    <div class="hilo" data-bind="hilo"></div>
+    <div class="days" data-bind="days"></div>
+    <div class="stale" data-bind="wxStale"></div>
+    <div class="rule"></div>
+    <div class="allday" data-bind="allDay"></div>
+    <div class="agenda-head">Today</div>
+    <div class="agenda" data-bind="agenda"></div>
+    <div class="stale" data-bind="calStale"></div>
+    <div class="rule"></div>
+    <div class="refl-label">This week</div>
+    <div class="refl-theme" data-bind="reflTheme"></div>
+    <div class="refl-practice" data-bind="reflPractice"></div>
+  </div>
+</section>
+
+<section id="screen-night" class="screen" aria-label="Night">
+  <div class="night-clock" data-bind="nightClock">
+    <span class="time" data-bind="time"></span>
+    <span class="ampm" data-bind="ampm"></span>
+  </div>
+</section>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,366 @@
+/* Frame styles. Chrome 106: no nesting, no :has, no color-mix/oklch, no 4/8-digit hex, no dvh. */
+html,
+body {
+  margin: 0;
+  width: 1280px;
+  height: 800px;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: Roboto, "Noto Sans", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: none;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.screen-a #screen-a,
+.screen-b #screen-b,
+.screen-night #screen-night {
+  display: block;
+}
+
+/* Photo stage: full width on A, left 794 px on B, hidden at night. */
+.stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 800px;
+  overflow: hidden;
+  background: #111;
+}
+
+.screen-b .stage {
+  width: 794px;
+}
+
+.screen-night .stage {
+  display: none;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+
+.layer .blur {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.6;
+}
+
+.layer img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Landscape photos fill the screen on A; everything else is fitted over its blurred backdrop. */
+.screen-a .layer.l img {
+  object-fit: cover;
+}
+
+.caption {
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.screen-a .caption {
+  right: 28px;
+  bottom: 20px;
+}
+
+/* Screen A card: bottom-left, 560 px wide. */
+.card {
+  position: absolute;
+  left: 40px;
+  bottom: 40px;
+  width: 560px;
+  min-height: 200px;
+  box-sizing: border-box;
+  padding: 26px 36px 24px;
+  border-radius: 28px;
+  background: rgba(14, 14, 16, 0.82);
+}
+
+.clock-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.time {
+  font-size: 96px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -2px;
+}
+
+.clock-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ampm {
+  font-size: 30px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.date {
+  font-size: 30px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.weather-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 30px;
+  font-weight: 500;
+}
+
+.wx-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.wx-icon[src=""] {
+  display: none;
+}
+
+.allday {
+  margin-top: 10px;
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.next {
+  margin-top: 8px;
+  font-size: 28px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rule {
+  height: 2px;
+  margin: 16px 0 12px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.refl {
+  font-size: 22px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.refl .refl-theme {
+  display: block;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.refl-practice {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.stale {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.stale:empty,
+.allday:empty,
+.next:empty {
+  display: none;
+}
+
+/* Screen B rail: right 486 px. */
+.rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 486px;
+  height: 800px;
+  box-sizing: border-box;
+  padding: 36px 40px 30px;
+  background: #0e0e10;
+  display: flex;
+  flex-direction: column;
+}
+
+.rail .clock-row.big .time {
+  font-size: 120px;
+}
+
+.rail .clock-row.big .ampm {
+  align-self: flex-start;
+  margin-top: 8px;
+  font-size: 32px;
+}
+
+.rail .date {
+  margin-top: 8px;
+}
+
+.rail .weather-line.big {
+  margin-top: 22px;
+  font-size: 34px;
+}
+
+.hilo {
+  margin-top: 4px;
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.days {
+  display: flex;
+  gap: 26px;
+  margin-top: 14px;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  font-size: 22px;
+}
+
+.day .dow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+
+.day .dow img {
+  width: 24px;
+  height: 24px;
+}
+
+.rail .rule {
+  margin: 16px 0 12px;
+}
+
+.rail .allday {
+  margin: 0 0 6px;
+}
+
+.agenda-head,
+.refl-label {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.refl-label {
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+
+.agenda {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.row .t {
+  flex: 0 0 120px;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.row .title {
+  font-size: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row.now .title {
+  font-weight: 600;
+}
+
+.row.more .title,
+.row.empty .title {
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rail .refl-theme {
+  margin-top: 4px;
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail .refl-practice {
+  margin-top: 4px;
+  font-size: 20px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Night: black, faint clock, slow position shift (set from JS) against burn-in. */
+#screen-night {
+  background: #000;
+}
+
+.night-clock {
+  position: absolute;
+  top: 330px;
+  left: 0;
+  width: 1280px;
+  text-align: center;
+  opacity: 0.35;
+}
+
+.night-clock .time {
+  font-size: 110px;
+  font-weight: 500;
+}
+
+.night-clock .ampm {
+  margin-left: 12px;
+  font-size: 28px;
+}
