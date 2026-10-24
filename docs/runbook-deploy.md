@@ -1,12 +1,12 @@
 # Runbook: deploy
 
-The Worker is `amber-heron` on `amber-heron.sredden.workers.dev`. No custom domain, no DNS. Free plan
+The Worker is `smart-frame` on `smart-frame.sredden.workers.dev`. No custom domain, no DNS. Free plan
 only: D1 and KV, no R2 (R2 needs a payment method on file).
 
 ## One-time setup (Stephen, in the dashboards)
 
-See the P0 steps document Dev sends. In short: create D1 `amber-heron-db` and KV
-`amber-heron-photos`, put their ids in `worker/wrangler.jsonc`, create a deploy-only API token and
+See the P0 steps document Dev sends. In short: create D1 `smart-frame-db` and KV
+`smart-frame-photos`, put their ids in `worker/wrangler.jsonc`, create a deploy-only API token and
 add it straight to GitHub repo secrets, set up Google OAuth and Cloudflare Access, then set the Worker
 secrets with `wrangler secret put` (never in the repo or chat).
 

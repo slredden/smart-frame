@@ -36,5 +36,5 @@ showing the last good data), and `reflection_no_current_week` (publish the next 
 
 Subject: `Frame: <problem>`.
 Body: what's wrong in one line, when it started, and the fix: "Open
-https://amber-heron.sredden.workers.dev/admin and reconnect Google" for a grant, or "Check the frame
+https://smart-frame.sredden.workers.dev/admin and reconnect Google" for a grant, or "Check the frame
 is on and on Wi-Fi" for offline.

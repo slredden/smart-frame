@@ -1,4 +1,4 @@
-# smart-frame deploy: main → the amber-heron Worker on workers.dev.
+# smart-frame deploy: main → the smart-frame Worker on workers.dev.
 # OFF until Stephen adds the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets and sets the
 # repository variable DEPLOY_ENABLED=true (PLAN.md §12). The token is deploy-only for this one Worker.
 # Never touches secrets, D1 or KV contents. Output is filtered by tools/deploy-worker.mjs.
@@ -34,7 +34,7 @@ jobs:
       - run: npm run build
       - run: npm run check
       - run: npm test
-      - name: Deploy amber-heron
+      - name: Deploy smart-frame
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

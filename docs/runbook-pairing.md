@@ -4,9 +4,9 @@ Each frame has its own device token. The Worker stores only the token's SHA-256.
 
 ## Pair
 
-1. Open `https://amber-heron.sredden.workers.dev/admin` (Cloudflare Access sign-in).
+1. Open `https://smart-frame.sredden.workers.dev/admin` (Cloudflare Access sign-in).
 2. Frames → name it → **Create pairing link**. The link is shown once and has the form
-   `https://amber-heron.sredden.workers.dev/#d=<id>.<secret>`.
+   `https://smart-frame.sredden.workers.dev/#d=<id>.<secret>`.
 3. Set that link as the kiosk app's URL (over USB/ADB, per the device plan). Don't paste it into chat
    or email; it is a credential.
 4. The frame stores the token, strips it from the address bar, and starts polling. `/admin` shows

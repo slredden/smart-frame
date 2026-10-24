@@ -1,4 +1,4 @@
-// amber-heron Worker: routes, auth gates, and the cron (PLAN.md §5, §7).
+// smart-frame Worker: routes, auth gates, and the cron (PLAN.md §5, §7).
 import { ensureSchema } from './db.js';
 import { json, error, empty, unauthorized, forbidden, notFound, readJson, redirect, log } from './http.js';
 import { authDevice, rateLimited, touchDevice, recordHeartbeat } from './auth/device.js';

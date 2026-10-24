@@ -5,7 +5,7 @@ import { b64urlEncode } from '../../worker/src/crypto.js';
 
 export const HEALTH = 'test-health-token-0123456789';
 export const PUBLISH = 'test-publish-token-0123456789';
-export const ORIGIN = 'https://amber-heron.example.workers.dev';
+export const ORIGIN = 'https://smart-frame.example.workers.dev';
 
 export function testEnv(extra = {}) {
   const assets = { fetch: async (req) => new Response('static:' + new URL(req.url).pathname, { headers: { 'content-type': 'text/html' } }) };

@@ -48,7 +48,7 @@ Decided by Stephen on 2026-10-24. Source: the [Smart frame layout](https://curso
 | Calendar | Only the **primary** calendar of his **Workspace** account, via the Calendar API. The Worker holds the token, and the frame only receives today's and tomorrow's events. All-day events go on a top line. Declined and "free" (transparent) events are hidden. After the day's last event, "Next" shows tomorrow's first event |
 | Weather | Open-Meteo for Denver. No key. Cached by the Worker |
 | Reflection | The current week's **theme plus its short practice** from Sage's monthly guide, shown on both A and B. Weeks are 7-day blocks from the guide's start date. Chief publishes monthly with `tools/publish-reflection.mjs` (§9.4). It is served **only** from an authenticated endpoint, never from a public page |
-| Hosting | Stephen's Cloudflare account (the same one as Grokbot Hub), Workers Free plan. **Default `workers.dev` address only**: Worker `amber-heron`, so the URL is `https://amber-heron.sredden.workers.dev`. No custom domain, no DNS. The name is deliberately neutral |
+| Hosting | Stephen's Cloudflare account (the same one as Grokbot Hub), Workers Free plan. **Default `workers.dev` address only**: Worker `smart-frame`, so the URL is `https://smart-frame.sredden.workers.dev`. No custom domain, no DNS. Resources use descriptive names (Stephen's choice) |
 | Units | °F and a 12-hour clock with AM/PM |
 | Alerts | Chief checks a token-protected health endpoint and emails Stephen if the frame has been offline for over 1 hour or a Google sign-in breaks (§13) |
 
@@ -95,7 +95,7 @@ Reference: `wesbos/photo-frame-dashboard` @ `0bff55e` (MIT). Credit it in the co
 ## 4. Architecture
 
 ```
- Phone/desktop (Stephen)                         Cloudflare (one Worker: amber-heron, Free plan)
+ Phone/desktop (Stephen)                         Cloudflare (one Worker: smart-frame, Free plan)
  ───────────────────────                         ────────────────────────────────────────────────
  /admin  ──(Cloudflare Access, Stephen only)──▶  admin routes ── Google OAuth (two grants, Picker)
    "Pick new photos" → opens Google Photos           │                       │
@@ -111,11 +111,11 @@ Reference: `wesbos/photo-frame-dashboard` @ `0bff55e` (MIT). Credit it in the co
    <img src="/p/…?exp&sig"> (signed URLs) ────▶
 ```
 
-- **One Worker** called `amber-heron` at `https://amber-heron.sredden.workers.dev`. It serves static
+- **One Worker** called `smart-frame` at `https://smart-frame.sredden.workers.dev`. It serves static
   assets (the frame shell and the admin page) and routes `/api/*`, `/p/*` and `/admin*` to code
   (`assets.run_worker_first` for those prefixes).
-- **No custom domain and no DNS** (decided 2026-10-24). The Worker name is neutral on purpose, so the
-  URL doesn't say what it is. Preview URLs stay off (`preview_urls: false`).
+- **No custom domain and no DNS** (decided 2026-10-24). Names are descriptive (Stephen's choice):
+  Worker `smart-frame`, D1 `smart-frame-db`, KV `smart-frame-photos`. Preview URLs stay off (`preview_urls: false`).
 - The frame shell (HTML/JS/CSS) is not sensitive. All personal data comes only from authenticated
   endpoints.
 - Chief's two endpoints (`/api/publish/reflection`, `/api/health`) sit **outside** Access because a
@@ -228,7 +228,7 @@ account (the hub Workers use none).
 
   The admin page (`POST /admin/api/devices`) creates 32 random bytes (base64url), stores only
   `SHA-256(token)` in D1, and shows the token **once**.
-- **Pairing:** save the kiosk URL as `https://amber-heron.sredden.workers.dev/#d=<id>.<token>` (the device plan's
+- **Pairing:** save the kiosk URL as `https://smart-frame.sredden.workers.dev/#d=<id>.<token>` (the device plan's
   `set-kiosk-url.sh`). The **fragment is never sent to the server**, so it doesn't appear in Cloudflare
   logs. On boot, `main.js` copies it to `localStorage`, then `history.replaceState` removes it from the
   URL. Later loads read `localStorage`. If that's empty, the saved kiosk URL still has the fragment.
@@ -252,7 +252,7 @@ account (the hub Workers use none).
 
 ### 7.2 Stephen → admin: Cloudflare Access
 
-- A self-hosted Access application on `amber-heron.sredden.workers.dev` paths `admin` and `admin/*`
+- A self-hosted Access application on `smart-frame.sredden.workers.dev` paths `admin` and `admin/*`
   with a Stephen-only policy (his addresses, the same Zero Trust team as Grokbot Hub). Cloudflare
   documents hostname- and path-based Access for `workers.dev`. Don't use Worker-level Access ("protect
   this Worker"): it would lock the frame out too. That covers the OAuth callback, the Picker flow, device management
@@ -265,8 +265,13 @@ account (the hub Workers use none).
 ### 7.3 Google OAuth (Calendar + Picker)
 
 - One Google Cloud project with **one Web OAuth client**. Redirect URI:
-  `https://amber-heron.sredden.workers.dev/admin/oauth/callback`. Stephen does the console steps
+  `https://smart-frame.sredden.workers.dev/admin/oauth/callback`. Stephen does the console steps
   himself from the P0 steps page.
+- **Branding:** home page `https://grokbot.sredden.com`, privacy policy
+  `https://grokbot.sredden.com/privacy`. Authorized domains: `sredden.com` (for those links) and
+  `sredden.workers.dev` (for the redirect URI). `workers.dev` is on the Public Suffix List, so the top
+  private domain of the redirect host is `sredden.workers.dev`; `workers.dev` alone can't be added.
+  No JavaScript origins (the OAuth flow is server-side).
 - **Consent screen: External, In production (published), unverified.** External because the Photos
   album is on the personal Gmail. Published so refresh tokens don't expire after 7 days (Testing
   status does that). Stephen accepted the "Google hasn't verified this app" warning at consent.
@@ -588,7 +593,7 @@ account work.
 | HTTPS fails on the frame (missing roots) | Low / frame shows nothing | Device plan installs ISRG + GTS roots. `*.workers.dev` (GTS) was observed working. P6 gate |
 | Free-tier limits (50 subrequests per invocation, 1k KV writes a day, 10 ms CPU) | Medium / ingest or cron failures | Batched ingest (20 photos per call), only photo bytes in KV, everything else in D1 (100k writes a day). No paid plan |
 | R2 or any product that needs a card | — | Not used. D1 + KV only (§6) |
-| `workers.dev` is reachable by anyone who learns the name | Low | Neutral name. Every data route needs a token or Access; the shell has no data |
+| `workers.dev` is reachable by anyone who learns the name | Low | Every data route needs a token or Access; the shell has no data |
 | Device token leaks (anyone on the LAN can read the page source and localStorage via debugging) | Low / read-only exposure of today's data | Hash-only storage, quick revoke, rate limit, no admin reach. Debugging off on the frame |
 | WebView quirks beyond the documented list | Medium / visual bugs | Chromium 106 e2e plus an on-frame check per phase that touches CSS |
 | Burn-in from the static night clock and A's corner card | Low–medium | Position shift every 10 min. Backlight hook for later |
@@ -599,7 +604,7 @@ account work.
 
 | # | Question | Decision |
 | --- | --- | --- |
-| 1 | Hostname | Default `workers.dev` only. No custom domain, no DNS. Neutral Worker name `amber-heron` → `https://amber-heron.sredden.workers.dev` |
+| 1 | Hostname | Default `workers.dev` only. No custom domain, no DNS. Descriptive names chosen by Stephen: Worker `smart-frame` → `https://smart-frame.sredden.workers.dev`, D1 `smart-frame-db`, KV `smart-frame-photos` |
 | 2 | Google accounts | The Photos album is on the personal Gmail, so the OAuth app is **External** |
 | 3 | Calendars | Only the primary calendar of the Workspace account. Two stored grants with separate refresh tokens, one OAuth client |
 | 4 | Calendar details | All-day events on a top line. Hide declined and "free" events. After the last event, show tomorrow's first |
@@ -635,3 +640,6 @@ Changes made while building P0–P5, beyond the edits folded into the sections a
 - **Deploy.** `deploy.yml` is gated on the repo variable `DEPLOY_ENABLED == 'true'` (unset). The D1 and
   KV ids in `wrangler.jsonc` are zero placeholders until P0's dashboard steps, so a deploy would fail
   until they're filled in.
+- **Names.** Stephen chose descriptive names (2026-10-24): Worker `smart-frame`, D1 `smart-frame-db`,
+  KV `smart-frame-photos`, OAuth redirect `https://smart-frame.sredden.workers.dev/admin/oauth/callback`.
+  Every resource is named for what it is.

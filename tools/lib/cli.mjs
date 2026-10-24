@@ -1,5 +1,5 @@
 // Small shared helpers for the box-side CLIs. Tokens come from env vars only and are never printed.
-export const DEFAULT_BASE = 'https://amber-heron.sredden.workers.dev';
+export const DEFAULT_BASE = 'https://smart-frame.sredden.workers.dev';
 
 export function parseArgs(argv) {
   const out = { _: [] };

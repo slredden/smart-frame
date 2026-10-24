@@ -1,10 +1,10 @@
-// amber-heron: the smart-frame Worker. Neutral name on purpose (no custom domain, no DNS).
-// URL: https://amber-heron.sredden.workers.dev
+// smart-frame: the Worker behind the photo frame (no custom domain, no DNS).
+// URL: https://smart-frame.sredden.workers.dev
 // Free plan only. No R2 (it needs a payment method on file). D1 + KV only.
 // No secrets here. Secrets are set with `wrangler secret put` (PLAN.md §14).
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "amber-heron",
+  "name": "smart-frame",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
@@ -18,7 +18,7 @@
   "d1_databases": [
     {
       "binding": "FRAME_DB",
-      "database_name": "amber-heron-db",
+      "database_name": "smart-frame-db",
       // P0: replace with the D1 database id Stephen sends back.
       "database_id": "00000000-0000-0000-0000-000000000000"
     }
