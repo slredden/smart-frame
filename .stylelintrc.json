@@ -1,0 +1,38 @@
+{
+  "extends": [
+    "stylelint-config-standard"
+  ],
+  "plugins": [
+    "stylelint-no-unsupported-browser-features"
+  ],
+  "rules": {
+    "plugin/no-unsupported-browser-features": [
+      true,
+      {
+        "browsers": [
+          "chrome >= 106"
+        ],
+        "severity": "error",
+        "ignorePartialSupport": true
+      }
+    ],
+    "color-function-notation": "legacy",
+    "alpha-value-notation": "number",
+    "color-hex-length": null,
+    "selector-class-pattern": null,
+    "custom-property-pattern": null,
+    "no-descending-specificity": null,
+    "media-feature-range-notation": "prefix",
+    "declaration-block-no-redundant-longhand-properties": null,
+    "property-no-vendor-prefix": null,
+    "value-keyword-case": null,
+    "color-function-alias-notation": null,
+    "declaration-block-single-line-max-declarations": null,
+    "declaration-empty-line-before": null,
+    "comment-empty-line-before": null,
+    "rule-empty-line-before": null,
+    "font-family-name-quotes": null,
+    "shorthand-property-no-redundant-values": null,
+    "number-max-precision": null
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "smart-frame",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:frame": "vite --config frame/vite.config.js",
+    "build": "vite build --config frame/vite.config.js",
+    "test": "npm run test:unit && npm run test:worker",
+    "test:unit": "vitest run --config vitest.unit.config.js",
+    "test:worker": "vitest run --config vitest.worker.config.js",
+    "lint": "eslint . && stylelint \"frame/styles/**/*.css\" \"frame/admin/**/*.css\"",
+    "check": "node tools/compat-check.mjs frame/dist && npm run lint",
+    "e2e": "node test/e2e/run.mjs",
+    "cf:check": "wrangler deploy --dry-run --config worker/wrangler.jsonc --outdir .wrangler/dry"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "@eslint/js": "^10.0.1",
+    "@puppeteer/browsers": "^3.2.6",
+    "eslint": "^10.13.0",
+    "eslint-plugin-compat": "^7.0.1",
+    "globals": "^17.13.0",
+    "puppeteer-core": "19.11.1",
+    "stylelint": "^17.16.0",
+    "stylelint-config-standard": "^40.0.0",
+    "stylelint-no-unsupported-browser-features": "^8.1.2",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.152.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260815.1": true
+  }
+}

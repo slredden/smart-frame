@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+*.local.*
+.env
+.env.*
+test/e2e/out/
+test/e2e/.browsers/
+coverage/

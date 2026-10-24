@@ -1,0 +1,49 @@
+// amber-heron: the smart-frame Worker. Neutral name on purpose (no custom domain, no DNS).
+// URL: https://amber-heron.sredden.workers.dev
+// Free plan only. No R2 (it needs a payment method on file). D1 + KV only.
+// No secrets here. Secrets are set with `wrangler secret put` (PLAN.md §14).
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "amber-heron",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../frame/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*", "/p/*", "/admin", "/admin/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "FRAME_DB",
+      "database_name": "amber-heron-db",
+      // P0: replace with the D1 database id Stephen sends back.
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "FRAME_PHOTOS",
+      // P0: replace with the KV namespace id Stephen sends back.
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  // One cron (the Free plan allows 5 per account). Calendar every run, weather every 10 min.
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": {
+    "BUILD_ID": "dev",
+    "IDLE_MINUTES": "10",
+    "PHOTO_INTERVAL_SEC": "60",
+    "PHOTO_SET_MAX": "300",
+    "WEATHER_LAT": "39.74",
+    "WEATHER_LON": "-104.99",
+    "TIME_ZONE": "America/Denver",
+    // P0: the Google OAuth client id (not secret) and this Access app's AUD tag.
+    "GOOGLE_CLIENT_ID": "",
+    "ACCESS_TEAM_DOMAIN": "https://aged-lake-40af.cloudflareaccess.com",
+    "ACCESS_AUD": ""
+  },
+  "observability": { "enabled": true }
+}
