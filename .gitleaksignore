@@ -1,0 +1,2 @@
+# Access AUD tag in wrangler.jsonc: a public identifier (it appears in every Access JWT), not a secret.
+9a4cbcb35f3b8d726c5fb4b427d1b76244864f54:worker/wrangler.jsonc:generic-api-key:47
