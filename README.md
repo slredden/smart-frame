@@ -9,10 +9,24 @@ Calendar events, Denver weather from Open-Meteo, and the current week's private 
 - Layout A, photo first: 7 AM–10 PM
 - Layout B, split: 6–7 AM
 - Dimmed clock: 10 PM–6 AM
-- A touch swaps A and B during the day or wakes the screen at night. After 10 idle minutes the
-  frame goes back to its schedule.
+- A touch swaps A and B during the day. At night the first touch wakes the screen and the second
+  swaps A and B. After 10 idle minutes the frame goes back to its schedule.
 
-**Status:** planning only. Nothing is built or deployed yet.
+**Status:** being built. Not deployed: deploys are off until the `DEPLOY_ENABLED` repo variable is set.
+Runs on the Cloudflare Workers Free plan (D1 + KV, no R2) at the default `workers.dev` address.
+
+## Develop
+
+```sh
+npm ci
+npm test            # unit + Worker tests
+npm run build       # frame + admin into frame/dist
+npm run check       # Chrome 106 compat check + lint + bundle size
+npm run dev:frame   # frame shell with mock data at http://localhost:5173/?mock=1
+npm run e2e         # Chromium 106 screenshots of A, B and night (downloads a pinned Chromium)
+```
+
+Runbooks for Chief and for operating the frame are in [docs/](docs/).
 
 - Build plan, including the design decisions: [PLAN.md](PLAN.md) (see [§1 Design](PLAN.md#1-design-decisions-fixed))
 - Design page (layout mockups and schedule): [Smart frame layout](https://cursor.com/canvas/store-593ad622-8000-409c-abb6-7c70dfc329fd/4e001d81-7509-463f-a5a4-a76cd8b088f3)
