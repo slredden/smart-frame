@@ -63,3 +63,37 @@ describe('cli helpers', () => {
     expect(scrubLine('Current Version ID: 123')).toBe('Current Version ID: 123');
   });
 });
+
+describe('set-worker-secrets', async () => {
+  const { collectSecrets, scrub, SECRETS } = await import('../../tools/set-worker-secrets.mjs');
+  const good = {
+    URL_SIGNING_KEY: 'u'.repeat(43),
+    TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString('base64'),
+    HEALTH_TOKEN_HASH: 'a'.repeat(64),
+    PUBLISH_TOKEN_HASH: 'b'.repeat(64),
+    ADMIN_EMAILS: 'one@example.com, two@example.org',
+    GOOGLE_CLIENT_SECRET: 'fake-client-secret-0000',
+  };
+  it('accepts a complete, well-formed set', () => {
+    const { values, problems } = collectSecrets(good);
+    expect(problems).toEqual([]);
+    expect(Object.keys(values).sort()).toEqual(Object.keys(SECRETS).sort());
+  });
+  it('reports missing and malformed secrets by name only', () => {
+    const env = { ...good, GOOGLE_CLIENT_SECRET: '', TOKEN_ENC_KEY: Buffer.alloc(16).toString('base64'), HEALTH_TOKEN_HASH: 'A'.repeat(64) };
+    const { problems } = collectSecrets(env);
+    expect(problems).toEqual([
+      'TOKEN_ENC_KEY: must be 32 bytes, base64',
+      'HEALTH_TOKEN_HASH: must be a lowercase SHA-256 hex digest',
+      'GOOGLE_CLIENT_SECRET: missing',
+    ]);
+    expect(problems.join(' ')).not.toContain(env.TOKEN_ENC_KEY);
+  });
+  it('rejects a bad admin email list', () => {
+    expect(collectSecrets({ ...good, ADMIN_EMAILS: 'not-an-email' }).problems).toEqual(['ADMIN_EMAILS: must be comma-separated email addresses']);
+  });
+  it('hides any line that contains a value', () => {
+    expect(scrub('Uploaded secret ' + good.URL_SIGNING_KEY, good)).toBe('[line hidden]');
+    expect(scrub('✨ 6 secrets successfully uploaded', good)).toBe('✨ 6 secrets successfully uploaded');
+  });
+});

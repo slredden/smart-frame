@@ -502,8 +502,9 @@ form on the same endpoint.
 4. `index.html` is served `Cache-Control: no-cache`, and hashed assets `max-age=31536000, immutable`.
 5. Rollback: `wrangler rollback`, or revert the commit and push. The frame follows the build id either
    way.
-6. Secrets, D1 and KV are never touched by CI. Secrets are set by hand with `wrangler secret put`,
-   with Stephen's OK.
+6. CI never touches D1 or KV contents. Worker secrets live as GitHub Actions secrets and reach the
+   Worker only through the manual `worker-secrets` workflow (`wrangler secret bulk`, see
+   `docs/runbook-deploy.md`), run with Stephen's OK. There is no second Cloudflare token.
 
 ## 13. Observability
 
@@ -533,22 +534,24 @@ form on the same endpoint.
 
 ## 14. Secrets inventory
 
-Nothing in this table is committed. `wrangler.jsonc` lists only names and non-secret vars.
+Nothing in this table is committed. `wrangler.jsonc` lists only names and non-secret vars. Every
+Worker secret is stored first as a GitHub Actions secret of the same name, then copied to the Worker
+by the manual `worker-secrets` workflow.
 
 | Secret | Where it lives | Set by | Purpose |
 | --- | --- | --- | --- |
-| `GOOGLE_CLIENT_SECRET` | Worker secret | Dev with OK (`wrangler secret put`), value from Stephen via a masked secret request | OAuth code exchange (`GOOGLE_CLIENT_ID` is a plain var) |
-| `TOKEN_ENC_KEY` | Worker secret (32 random bytes, base64) | Dev, generated on the box, never printed | AES-GCM for Google tokens and reflection data in D1 |
-| `URL_SIGNING_KEY` | Worker secret | Dev, generated on the box | HMAC for `/p/*` signed photo URLs |
-| `PUBLISH_TOKEN_HASH` | Worker secret (SHA-256 hex of the publish token) | Dev | Reflection publishing by Chief |
-| `HEALTH_TOKEN_HASH` | Worker secret (SHA-256 hex of the health token) | Dev | Chief's health check |
-| `ADMIN_EMAILS` | Worker secret (comma-separated) | Dev | Second check behind Access. A secret only to keep addresses out of the repo |
+| `GOOGLE_CLIENT_SECRET` | GitHub secret → Worker secret | Stephen via a masked secret request to Dev; Dev pipes it into `gh secret set` | OAuth code exchange (`GOOGLE_CLIENT_ID` is a plain var) |
+| `TOKEN_ENC_KEY` | GitHub secret → Worker secret (32 random bytes, base64) | Dev, generated and piped into `gh secret set`, never printed | AES-GCM for Google tokens and reflection data in D1 |
+| `URL_SIGNING_KEY` | GitHub secret → Worker secret | Dev, generated and piped, never printed | HMAC for `/p/*` signed photo URLs |
+| `PUBLISH_TOKEN_HASH` | GitHub secret → Worker secret (SHA-256 hex of the publish token) | Dev | Reflection publishing by Chief |
+| `HEALTH_TOKEN_HASH` | GitHub secret → Worker secret (SHA-256 hex of the health token) | Dev | Chief's health check |
+| `ADMIN_EMAILS` | GitHub secret → Worker secret (comma-separated) | Dev | Second check behind Access. A secret only to keep addresses out of the repo |
 | Publish and health tokens (raw) | Chief's box env / vault, not the repo, not chat | Dev hands over via a masked secret request | Used by the two CLIs |
 | Google refresh tokens | D1, encrypted | OAuth callback | Calendar and Picker access |
 | Device token (raw) | Kiosk saved URL fragment + frame `localStorage` | Pairing over USB ADB | Frame auth. Only the hash is in D1 |
 | `CLOUDFLARE_API_TOKEN` | GitHub Actions secret | Stephen pastes it straight into GitHub | Deploy only |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secret | Stephen | Not secret, kept out of code |
-| `GOOGLE_CLIENT_ID`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, D1 and KV ids | `wrangler.jsonc` vars/bindings (placeholders until P0) | Dev | Not secret |
+| `GOOGLE_CLIENT_ID`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, D1 and KV ids | `wrangler.jsonc` vars/bindings (filled in 2026-10-24) | Dev | Not secret |
 
 If `TOKEN_ENC_KEY` is lost or rotated, re-consent both Google grants and re-publish the reflection.
 There's no other recovery path, by design.
@@ -638,8 +641,9 @@ Changes made while building P0–P5, beyond the edits folded into the sections a
 - **e2e.** `puppeteer-core` is pinned to 19.11.1. Newer releases hang launching Chromium 106 (they use
   newer CDP calls). Chromium 106 is r1036826 via `@puppeteer/browsers`.
 - **Deploy.** `deploy.yml` is gated on the repo variable `DEPLOY_ENABLED == 'true'` (unset). The D1 and
-  KV ids in `wrangler.jsonc` are zero placeholders until P0's dashboard steps, so a deploy would fail
-  until they're filled in.
+  KV ids, Google client id and Access AUD are filled in. Worker secrets go through the manual
+  `worker-secrets` workflow (`tools/set-worker-secrets.mjs`), which refuses if any secret is missing or
+  malformed or the Worker doesn't exist yet. Dev holds no Cloudflare token.
 - **Names.** Stephen chose descriptive names (2026-10-24): Worker `smart-frame`, D1 `smart-frame-db`,
   KV `smart-frame-photos`, OAuth redirect `https://smart-frame.sredden.workers.dev/admin/oauth/callback`.
   Every resource is named for what it is.

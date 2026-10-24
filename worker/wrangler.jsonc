@@ -1,7 +1,7 @@
 // smart-frame: the Worker behind the photo frame (no custom domain, no DNS).
 // URL: https://smart-frame.sredden.workers.dev
 // Free plan only. No R2 (it needs a payment method on file). D1 + KV only.
-// No secrets here. Secrets are set with `wrangler secret put` (PLAN.md §14).
+// No secrets here. Secrets go GitHub secrets -> Worker via the worker-secrets workflow (PLAN.md §14).
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "smart-frame",
@@ -20,15 +20,13 @@
     {
       "binding": "FRAME_DB",
       "database_name": "smart-frame-db",
-      // P0: replace with the D1 database id Stephen sends back.
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "be885d34-b163-4314-a9ea-2d7b5c2fd83b"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "FRAME_PHOTOS",
-      // P0: replace with the KV namespace id Stephen sends back.
-      "id": "00000000000000000000000000000000"
+      "id": "b684cd0680a34f788b508b1371e39081"
     }
   ],
   // One cron (the Free plan allows 5 per account). Calendar every run, weather every 10 min.
