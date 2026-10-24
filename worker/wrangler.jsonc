@@ -5,6 +5,7 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "smart-frame",
+  "account_id": "9fe5335692abfa6ffa078e497d6f77d2",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
@@ -40,10 +41,10 @@
     "WEATHER_LAT": "39.74",
     "WEATHER_LON": "-104.99",
     "TIME_ZONE": "America/Denver",
-    // P0: the Google OAuth client id (not secret) and this Access app's AUD tag.
-    "GOOGLE_CLIENT_ID": "",
+    // Google OAuth client id and the Access app's AUD tag (both public, set 2026-10-24).
+    "GOOGLE_CLIENT_ID": "869338664734-jpienjie5r7d1f0cjtmp4bdk9c0qb481.apps.googleusercontent.com",
     "ACCESS_TEAM_DOMAIN": "https://aged-lake-40af.cloudflareaccess.com",
-    "ACCESS_AUD": ""
+    "ACCESS_AUD": "2e921b75e459c3ff59a6f6db9d971045a8bb8d89780841023c58f2fa7a9b90ed"
   },
   "observability": { "enabled": true }
 }
