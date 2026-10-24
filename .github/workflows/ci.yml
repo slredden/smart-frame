@@ -1,0 +1,57 @@
+# smart-frame CI: lint, unit + Worker tests, build, Chrome 106 compat check, wrangler dry run,
+# secret scan, and Chromium 106 screenshots at 1280×800. No deploys and no secrets here.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CI: "true"
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Secret scan (gitleaks, full history)
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=8.30.1
+          sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -sSfL -o /tmp/gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${v}/gitleaks_${v}_linux_x64.tar.gz"
+          echo "${sum}  /tmp/gl.tgz" | sha256sum -c -
+          tar -xzf /tmp/gl.tgz -C /tmp gitleaks
+          /tmp/gitleaks git . --no-banner --redact --exit-code 1
+      - run: npm run build
+      - name: Chrome 106 compat check + lint
+        run: npm run check
+      - run: npm run test:unit
+      - run: npm run test:worker
+      - name: Wrangler dry run (no account access)
+        run: npm run cf:check
+      - name: Install Chromium 106 (r1036826)
+        run: npx @puppeteer/browsers install chromium@1036826 --path test/e2e/.browsers
+      - name: e2e screenshots (Chromium 106, 1280×800, mock data)
+        run: npm run e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: test/e2e/out/
+          if-no-files-found: ignore
+          retention-days: 14
