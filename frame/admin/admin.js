@@ -108,7 +108,7 @@ for (const b of document.querySelectorAll('[data-disconnect]')) {
 }
 
 const CAL_ERRORS = {
-  reconnect_calendar: 'Reconnect calendar first (Google needs one more permission to list your calendars).',
+  reconnect_calendar: 'Click Connect calendar first (Google needs one more permission to list your calendars).',
   too_many_calendars: 'Too many calendars selected.',
 };
 

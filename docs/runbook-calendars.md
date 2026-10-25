@@ -10,8 +10,8 @@ it shows the primary calendar only (the v1 behaviour).
    events on any calendar is already covered by `calendar.events.readonly`.
 2. Optional: in Google Cloud console → Google Auth Platform → Data Access, add that scope next to the
    existing calendar scope so the consent screen lists it.
-3. On /admin → Google, click **Reconnect calendar** and approve. Until then the frame keeps showing the
-   primary calendar and **Load calendars from Google** says to reconnect.
+3. On /admin → Google, click **Connect calendar** (the same button as the first connect) and approve. Until then the frame keeps showing the
+   primary calendar and **Load calendars from Google** says to click **Connect calendar** first.
 
 ## Choosing
 
@@ -27,8 +27,8 @@ it shows the primary calendar only (the v1 behaviour).
   Free-plan Workers allow 50 subrequests per invocation; 25 calendars + weather + a token refresh fit.
 - A calendar that fails (removed, no access) is skipped and logged as `calendar_error` with counts only;
   if every calendar fails the previous cache stays and the usual stale label appears.
-- When nothing is left today and tomorrow has no timed event, the info line shows the next event within
-  30 days: `Next: Tue, Nov 3, 9:00 AM · …`.
+- When nothing is left today and tomorrow has no timed event, Home's agenda shows the next event within
+  30 days: `Nothing else today. Next: Tue, Nov 3, 9:00 AM · …`.
 - Each event carries its calendar's Google colour (`color`) in the payload, for the v2 Calendar screen.
 
 ## Schema
