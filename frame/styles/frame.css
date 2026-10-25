@@ -456,7 +456,8 @@ body:not(.rail-on, .screen-home, .screen-night, .screen-photos) .rail-corner {
 .screen-settings #view-settings,
 .screen-tasks #view-tasks,
 .screen-photos #view-photos,
-.screen-reflection #view-reflection {
+.screen-reflection #view-reflection,
+.screen-controls #view-controls {
   display: block;
 }
 
@@ -1562,4 +1563,343 @@ body.screen-home .alerts {
 
 .alert-col .seg-btn {
   width: 110px;
+}
+
+/*
+ * Controls (PLAN-v2.md §11.4): Spotify on the left (~45%), the cameras on the right. The view's 48 px
+ * left padding keeps every control clear of the 32 px edge zone, and the 704 px height ends at 720 px,
+ * above the kiosk Menu area (728 px), so the rail's push and the corner guard need nothing extra.
+ */
+.ctl-wrap {
+  display: flex;
+  gap: 24px;
+  height: 704px;
+}
+
+.ctl-card {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 20px;
+  border-radius: 16px;
+  background: #1e1e24;
+}
+
+.sp-card {
+  flex: 0 0 45%;
+}
+
+.cam-card {
+  position: relative;
+  flex: 1 1 0;
+}
+
+.sp-now {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.sp-art {
+  flex: 0 0 144px;
+  height: 144px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #2a2a31;
+}
+
+.sp-art-img {
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sp-art.has-art .sp-art-img {
+  display: block;
+}
+
+.sp-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sp-title,
+.sp-artist,
+.sp-device,
+.sp-dev-name,
+.cam-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sp-title {
+  font-size: 30px;
+  font-weight: 600;
+}
+
+.sp-artist {
+  margin-top: 4px;
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.sp-device {
+  margin-top: 6px;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sp-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.sp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  padding: 0;
+  font-size: 32px;
+}
+
+.sp-main {
+  background: #3a3a44;
+}
+
+.sp-vol-val {
+  min-width: 56px;
+  font-size: 22px;
+  text-align: center;
+}
+
+.sp-msg {
+  min-height: 28px;
+  margin-top: 12px;
+  font-size: 22px;
+  color: #ffd27a;
+}
+
+.sp-card.off .sp-msg {
+  font-size: 26px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.sp-devs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.sp-devs-title {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.sp-refresh {
+  min-width: 64px;
+  height: 64px;
+  font-size: 20px;
+}
+
+.sp-devs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  margin-top: 10px;
+  overflow-y: auto;
+}
+
+.sp-dev {
+  display: flex;
+  flex: 0 0 72px;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 72px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 12px;
+  background: #2a2a31;
+  color: #fff;
+  font: inherit;
+  font-size: 24px;
+  text-align: left;
+}
+
+.sp-dev.on {
+  background: #2f4a3a;
+}
+
+.sp-dev-name {
+  flex: 1 1 auto;
+}
+
+.sp-dev-mark {
+  margin-left: 12px;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.sp-dev-empty {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.sp-note {
+  margin-top: 10px;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sp-card.off .sp-note {
+  display: none;
+}
+
+.cam-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.cam-title {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.cam-msg {
+  font-size: 22px;
+  color: #ffd27a;
+}
+
+.cam-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  min-height: 0;
+}
+
+.cam-tile {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #26262d;
+  color: #fff;
+  font: inherit;
+}
+
+.cam-tile.empty {
+  background: #1a1a1f;
+}
+
+.cam-tile.covered {
+  background: #2c2c34;
+}
+
+.cam-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cam-tile.has-img .cam-img {
+  display: block;
+}
+
+.cam-tile.stale .cam-img {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.cam-note {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  transform: translateY(-50%);
+}
+
+.cam-cap {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.7));
+  font-size: 20px;
+  text-align: left;
+}
+
+.cam-label {
+  font-weight: 600;
+}
+
+.cam-age {
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.cam-tile.stale .cam-age {
+  color: #ffd27a;
+}
+
+.cam-big {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: none;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: #000;
+  color: #fff;
+}
+
+.cam-card.big-on .cam-big {
+  display: block;
+}
+
+.cam-big-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cam-big-label {
+  position: absolute;
+  bottom: 12px;
+  left: 16px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 22px;
 }

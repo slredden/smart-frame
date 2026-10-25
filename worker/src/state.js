@@ -10,7 +10,7 @@ import { photoManifest } from './photos.js';
 
 const HOUR = 3600000;
 
-export const FEATURES = { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: false };
+export const FEATURES = { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: true };
 
 export async function buildState(env, device, nowMs = Date.now()) {
   const db = env.FRAME_DB;

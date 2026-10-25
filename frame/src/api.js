@@ -87,5 +87,19 @@ export function createClient(token, fetchImpl, base = '') {
     completeTask: (list, task) => call('POST', '/api/tasks/' + encodeURIComponent(list) + '/' + encodeURIComponent(task) + '/complete', { status: 'completed' }),
     reflection: () => call('GET', '/api/reflection'),
     photoFlag: (setId, n, patch) => call('PUT', '/api/photos/' + encodeURIComponent(setId) + '/' + encodeURIComponent(n), patch),
+    // P2 Controls (PLAN-v2.md §11.4-§11.7)
+    spotifyState: (devices) => call('GET', '/api/spotify/state' + (devices ? '?devices=1' : '')),
+    spotifyAction: (action, body) => call('POST', '/api/spotify/' + action, body || {}),
+    controlsState: () => call('GET', '/api/controls/state'),
+    /** A camera picture as a Blob (it needs the device token, so no plain <img src>). */
+    async camImage(id, reveal) {
+      try {
+        const res = await fetchImpl(base + '/api/controls/cam/' + encodeURIComponent(id) + (reveal ? '?reveal=1' : ''), { method: 'GET', headers: Object.assign({}, headers), cache: 'no-store' });
+        if (!res.ok || (res.headers.get('content-type') || '').indexOf('image/') !== 0) return { status: res.ok ? 502 : res.status, blob: null };
+        return { status: 200, blob: await res.blob() };
+      } catch {
+        return { status: 0, blob: null };
+      }
+    },
   };
 }

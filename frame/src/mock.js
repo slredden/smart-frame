@@ -15,7 +15,16 @@ const blur = (c) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http
 let mockSettings = JSON.parse(JSON.stringify(DEFAULTS));
 
 /** Mock switches set by main.js from the URL (?tasks=noscope) and a log of writes for the e2e test. */
-export const mockConfig = { tasksScope: true, calls: [] };
+export const mockConfig = {
+  tasksScope: true,
+  calls: [],
+  // P2 Controls: ?spotify=off|idle, ?cams=off|offline|none; spotifyFail makes the next Spotify write fail;
+  // camAt holds each camera's last picture time (the e2e test moves it to make a new picture).
+  spotify: 'on',
+  cams: 'on',
+  spotifyFail: null,
+  camAt: {},
+};
 
 const LISTS = [
   { id: 'l1', title: 'Example list', selected: true, default: true },
@@ -93,7 +102,7 @@ export function mockState(nowMs, tz, base = '') {
     build: 'dev',
     serverTime: new Date(nowMs).toISOString(),
     config: { idleMinutes: mockSettings.idle.minutes, photoIntervalSec: mockSettings.photos.intervalSec, timeZone: tz },
-    features: { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: false },
+    features: { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: true },
     settings: JSON.parse(JSON.stringify(mockSettings)),
     weather: {
       fetchedAt,
@@ -212,6 +221,91 @@ const PLACES = [
   { name: 'Boulder City', admin1: 'Nevada', country: 'United States', lat: 35.98, lon: -114.83, timeZone: 'America/Los_Angeles' },
 ];
 
+// ----- P2 Controls (made-up speakers and cameras) -----
+const SPEAKERS = [
+  { id: 'd1', name: 'Example speaker', type: 'Speaker' },
+  { id: 'd2', name: 'Example office', type: 'Speaker' },
+  { id: 'd3', name: 'Example TV', type: 'TV' },
+];
+const SONGS = [
+  { title: 'Example song', artists: 'Example artist' },
+  { title: 'Another example', artists: 'Example band' },
+  { title: 'Third example', artists: 'Example trio' },
+];
+const sp = { playing: true, song: 0, device: 'd1', volume: 40, last: 'Example office' };
+// Outdoor first in the reply (the Worker sorts by indoor, then position); ages in seconds.
+const CAMS = [
+  { id: 'c1', label: 'Front door', indoor: false, age: 40 },
+  { id: 'c2', label: 'Driveway', indoor: false, age: 1500 },
+  { id: 'c3', label: 'Living room', indoor: true, age: 20 },
+  { id: 'c4', label: 'Basement', indoor: true, age: 70 },
+];
+
+function spotifyStateMock(devices) {
+  if (mockConfig.spotify === 'off') return { connected: false, reason: 'not_connected' };
+  const idle = mockConfig.spotify === 'idle';
+  const dev = idle ? null : SPEAKERS.find((d) => d.id === sp.device);
+  const list = (idle ? SPEAKERS.slice(0, 1) : SPEAKERS).map((d) => ({ id: d.id, name: d.name, type: d.type, active: !!dev && dev.id === d.id, remembered: d.name === sp.last }));
+  return {
+    connected: true,
+    playing: !idle && sp.playing,
+    item: idle ? null : { title: SONGS[sp.song].title, artists: SONGS[sp.song].artists, art: null },
+    device: dev ? { id: dev.id, name: dev.name, type: dev.type, volume: sp.volume } : null,
+    devices: list,
+    lastDevice: sp.last,
+    fresh: !!devices,
+  };
+}
+
+function spotifyActionMock(action, body) {
+  mockConfig.calls.push({ m: 'spotify', action, body });
+  if (mockConfig.spotify === 'off') return { status: 409, data: { error: 'not_connected' } };
+  if (mockConfig.spotifyFail) {
+    const e = mockConfig.spotifyFail;
+    mockConfig.spotifyFail = null;
+    return { status: e === 'spotify_busy' ? 429 : 403, data: { error: e } };
+  }
+  if (mockConfig.spotify === 'idle' && action === 'play') return { status: 409, data: { error: 'device_absent', name: sp.last, devices: SPEAKERS.slice(0, 1).map((d) => ({ id: d.id, name: d.name, type: d.type })) } };
+  if (action === 'play') sp.playing = true;
+  else if (action === 'pause') sp.playing = false;
+  else if (action === 'next') sp.song = (sp.song + 1) % SONGS.length;
+  else if (action === 'prev') sp.song = (sp.song + SONGS.length - 1) % SONGS.length;
+  else if (action === 'volume') sp.volume = body.volume;
+  else if (action === 'transfer') {
+    const d = SPEAKERS.find((x) => x.id === body.device_id);
+    if (!d) return { status: 400, data: { error: 'unknown_device' } };
+    sp.device = d.id;
+    sp.last = d.name;
+    if (mockConfig.spotify === 'idle') mockConfig.spotify = 'on';
+  }
+  return { status: 200, data: { ok: true } };
+}
+
+function camAt(c, nowMs) {
+  if (!mockConfig.camAt[c.id]) mockConfig.camAt[c.id] = new Date(nowMs - c.age * 1000).toISOString();
+  return mockConfig.camAt[c.id];
+}
+
+function controlsStateMock(nowMs) {
+  mockConfig.calls.push({ m: 'controlsState' });
+  if (mockConfig.cams === 'off') return { status: 200, data: { connected: false, reason: 'not_connected', cams: [] } };
+  if (mockConfig.cams === 'offline') return { status: 503, data: { error: 'ha_unreachable' } };
+  const indoorOn = !!mockSettings.controls.indoor;
+  const cams = mockConfig.cams === 'none' ? [] : CAMS.map((c) => (c.indoor && !indoorOn ? { id: c.id, label: c.label, indoor: true, off: true } : { id: c.id, label: c.label, indoor: c.indoor, updated: camAt(c, nowMs), available: true }));
+  return { status: 200, data: { connected: true, indoorOn, revealSec: mockSettings.controls.revealSec, cams } };
+}
+
+const CAM_COLORS = { c1: '#3b5d7a', c2: '#5c6b3a', c3: '#7a4f3b', c4: '#4f3b7a' };
+
+function camImageMock(id, reveal) {
+  mockConfig.calls.push({ m: 'camImage', id, reveal: !!reveal });
+  const c = CAMS.find((x) => x.id === id);
+  if (!c) return { status: 404, blob: null };
+  if (c.indoor && (!mockSettings.controls.indoor || !reveal)) return { status: 403, blob: null };
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="' + CAM_COLORS[id] + '"/><text x="32" y="64" font-size="36" fill="#fff" font-family="sans-serif">Example ' + c.label + '</text></svg>';
+  return { status: 200, blob: new Blob([svg], { type: 'image/svg+xml' }) };
+}
+
 /** Same surface as api.createClient, answered from memory (for ?mock=1 and the e2e test). */
 export function createMockClient(now, tz) {
   const ok = (data) => Promise.resolve({ status: 200, data });
@@ -263,5 +357,9 @@ export function createMockClient(now, tz) {
       Object.assign(f, patch);
       return ok({ ok: true });
     },
+    spotifyState: (devices) => ok(spotifyStateMock(devices)),
+    spotifyAction: (action, body) => Promise.resolve(spotifyActionMock(action, body || {})),
+    controlsState: () => Promise.resolve(controlsStateMock(now())),
+    camImage: (id, reveal) => Promise.resolve(camImageMock(id, reveal)),
   };
 }

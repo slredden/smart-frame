@@ -41,6 +41,9 @@ export function alertsSummary(a) {
   return (a.leadMin ? a.leadMin + ' min' : 'Tasks only') + ' · ' + (a.chime ? 'chime ' + a.volume + '%' : 'no chime');
 }
 
+/** Settings row value for Controls (PLAN-v2.md §11.7): 'Off' / 'Shown 45 s per tap'. */
+export const controlsSummary = (c) => (c && c.indoor ? 'Shown ' + c.revealSec + ' s per tap' : 'Off');
+
 export function createSettingsScreen(root, ctx) {
   const list = h('div', 'set-list');
   root.appendChild(h('div', 'set-head', 'Settings'));
@@ -99,6 +102,7 @@ export function createSettingsScreen(root, ctx) {
     list.appendChild(row('Task lists', listSummary, 'set-tasklists'));
     list.appendChild(row('Tasks on Home', s.tasks.onHome ? 'On' : 'Off', 'set-tasks-home'));
     list.appendChild(row('Alerts', alertsSummary(s.alerts), 'set-alerts'));
+    list.appendChild(row('Indoor cameras', controlsSummary(s.controls), 'set-controls'));
   }
 
   /** Saves through the Worker; returns true or the error text for the sheet. */
@@ -296,6 +300,40 @@ export function createSettingsScreen(root, ctx) {
     });
   }
 
+  /** Settings › Controls (§11.7): indoor cameras off by default; a tap shows one for 30-60 s. */
+  function editControls() {
+    const b = BOUNDS.controls;
+    const v = Object.assign({}, ctx.settings().controls);
+    const box = h('div', 'alert-col');
+    const draw = () => {
+      clear(box);
+      box.appendChild(
+        h('div', 'opt-row', '', [
+          h('span', 'step-label', 'Show indoor cameras'),
+          h('div', 'seg', '', [btn('On', 'opt', 'seg-btn opt-btn' + (v.indoor ? ' on' : ''), { v: 'true' }), btn('Off', 'opt', 'seg-btn opt-btn' + (v.indoor ? '' : ' on'), { v: 'false' })]),
+        ]),
+      );
+      box.appendChild(h('div', 'stepper', '', [h('span', 'step-label', 'Show for'), btn('–', 'step', 'step-btn', { dir: '-1' }), h('span', 'step-val', v.revealSec + ' s'), btn('+', 'step', 'step-btn', { dir: '1' })]));
+      box.appendChild(h('div', 'opt-note', 'Indoor cameras stay covered until tapped, then cover again. Never at night or on Home.'));
+    };
+    draw();
+    ctx.sheet.open({
+      title: 'Indoor cameras',
+      build(body) {
+        body.appendChild(box);
+        return {
+          onTap(el, act) {
+            if (act === 'opt') v.indoor = el.getAttribute('data-v') === 'true';
+            else if (act === 'step') v.revealSec = clamp(v.revealSec + Number(el.getAttribute('data-dir')) * b.step, b.revealSec);
+            else return;
+            draw();
+          },
+        };
+      },
+      onDone: () => save('controls', { indoor: v.indoor, revealSec: v.revealSec }),
+    });
+  }
+
   return {
     show() {
       render();
@@ -320,6 +358,7 @@ export function createSettingsScreen(root, ctx) {
       else if (act === 'set-tasklists') ctx.openTaskLists();
       else if (act === 'set-tasks-home') save('tasks', { onHome: !ctx.settings().tasks.onHome }).then((r) => r !== true && ctx.toast.show({ text: r, ms: 4000 }));
       else if (act === 'set-alerts') editAlerts();
+      else if (act === 'set-controls') editControls();
     },
   };
 }
