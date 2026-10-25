@@ -131,7 +131,7 @@ describe('health', () => {
     h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
     expect(h.frame.offline).toBe(false);
     expect(h.problems).not.toContain('frame_never_seen');
-    expect(Object.keys(h).sort()).toEqual(['alert', 'build', 'calendar', 'frame', 'grants', 'now', 'ok', 'photos', 'problems', 'reflection', 'tasks', 'weather']);
+    expect(Object.keys(h).sort()).toEqual(['alert', 'build', 'calendar', 'frame', 'grants', 'now', 'ok', 'photos', 'problems', 'reflection', 'spotify', 'tasks', 'weather']);
     expect(h.frame.build).toBe('b1');
   });
 

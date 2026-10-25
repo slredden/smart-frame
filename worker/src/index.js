@@ -15,6 +15,7 @@ import { refreshWeather, searchPlaces, WEATHER_KEY } from './weather.js';
 import { refreshCalendar, calendarWindow, listCalendars, setSelection, syncCalendarList, cachedCalendar, MAX_SELECTED, MAX_WINDOW_DAYS } from './google/calendar.js';
 import { getSettings, putSetting, overWriteBudget } from './settings.js';
 import { getCache } from './db.js';
+import { spotifyState, spotifyAction } from './spotify/api.js';
 import { ymdIn } from '../../shared/time.js';
 
 export async function route(request, env, deps = {}) {
@@ -135,6 +136,24 @@ async function deviceApi(request, env, url, device, deps) {
     return r.ok ? json({ places: r.places }) : error(r.error === 'bad_query' ? 400 : 502, r.error);
   }
 
+  // P2 Spotify (PLAN-v2.md §11.5). Player taps aren't D1 writes, so they skip the settings write budget;
+  // the per-device rate limit above still applies.
+  if (path === '/api/spotify/state' && method === 'GET') {
+    return spotifyReply(await spotifyState(env, { fetchImpl, nowMs, devices: url.searchParams.get('devices') === '1' }));
+  }
+  const spotifyMatch = /^\/api\/spotify\/([a-z]{1,12})$/.exec(path);
+  if (spotifyMatch && method === 'POST') {
+    const text = await request.text();
+    if (text.length > 1024) return error(400, 'too_large');
+    let body;
+    try {
+      body = text.trim() ? JSON.parse(text) : {};
+    } catch {
+      return error(400, 'bad_json');
+    }
+    return spotifyReply(await spotifyAction(env, spotifyMatch[1], body, { fetchImpl, nowMs }));
+  }
+
   // Everything below writes, so it counts against the device's hourly budget.
   const writes = method === 'PUT' || method === 'POST';
   const settingMatch = /^\/api\/settings\/([a-z]{1,20})$/.exec(path);
@@ -206,6 +225,15 @@ async function deviceApi(request, env, url, device, deps) {
     return r.ok ? json({ ok: true }) : error(r.status, r.error);
   }
   return notFound();
+}
+
+function spotifyReply(r) {
+  if (r.ok) return json(r.body);
+  const out = { error: r.error };
+  if (r.name !== undefined) out.name = r.name;
+  if (r.devices) out.devices = r.devices;
+  if (r.retryAfter) out.retryAfter = r.retryAfter;
+  return json(out, r.status, r.retryAfter ? { 'Retry-After': String(r.retryAfter) } : {});
 }
 
 export async function runCron(env, nowMs = Date.now(), fetchImpl = fetch) {

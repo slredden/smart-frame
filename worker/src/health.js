@@ -3,6 +3,7 @@ import { ymdIn } from '../../shared/time.js';
 import { getMeta } from './db.js';
 import { grantStatuses, grantHasScope, TASKS_SCOPE } from './google/oauth.js';
 import { activeSet } from './photos.js';
+import { spotifyStatus } from './spotify/oauth.js';
 import { loadGuides } from './reflection.js';
 import { currentWeek, pickGuide, reflectionFreshness } from '../../shared/reflection.js';
 
@@ -34,6 +35,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
   const tasksEmpty = await getMeta(db, 'tasks_lists_empty');
   const tl = await db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(selected), 0) AS s FROM tasklists').first();
   const publishedAt = await getMeta(db, 'reflection_published_at');
+  const spotify = await spotifyStatus(env, nowMs);
 
   const problems = [];
   const offline = frameAge === null || frameAge > OFFLINE_MINUTES;
@@ -56,9 +58,13 @@ export async function buildHealth(env, nowMs = Date.now()) {
   if (!week) problems.push('reflection_no_current_week');
   if (fresh.weekly.stale) problems.push('reflection_weekly_stale');
   if (fresh.monthly.stale) problems.push('reflection_monthly_stale');
+  // P2 Spotify (runbook-controls.md): soft until connected; alerting when it needs reconnecting.
+  if (spotify.status === 'needs_reconsent') problems.push('grant_spotify_needs_reconsent');
+  else if (spotify.status !== 'ok') problems.push('spotify_not_connected');
+  else if (spotify.reauthDue) problems.push('spotify_reauth_due');
 
   // Chief emails Stephen only for these: frame offline > 1 h, or a Google sign-in that needs fixing.
-  const alert = problems.some((p) => p.startsWith('frame_') || p.startsWith('grant_'));
+  const alert = problems.some((p) => p.startsWith('frame_') || p.startsWith('grant_') || p === 'spotify_reauth_due');
   return {
     ok: problems.length === 0,
     alert,
@@ -66,6 +72,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
     now: new Date(nowMs).toISOString(),
     frame: { lastHeartbeat, ageMinutes: frameAge, offline, build: frameBuild },
     grants: { calendar: { status: grants.calendar.status, tasksScope }, photos: { status: grants.photos.status } },
+    spotify: { configured: spotify.configured, status: spotify.status, connectedAt: spotify.connectedAt, reconnectBy: spotify.reconnectBy },
     photos: { lastSync: photoSync, count: set ? set.count : 0 },
     weather: { lastFetch: weatherOk, ageMinutes: wAge },
     calendar: { lastFetch: calendarOk },

@@ -329,10 +329,47 @@ $('set-reset').addEventListener('click', async () => {
   }
 });
 
+const SPOTIFY_MSG = {
+  ok: 'Spotify connected.',
+  spotify_client_missing: 'Spotify isn\u2019t set up on the Worker yet (SPOTIFY_CLIENT_SECRET missing).',
+  consent_denied: 'Spotify sign-in was cancelled.',
+  scope_missing: 'Spotify didn\u2019t grant playback control. Try again and accept.',
+};
+
+async function loadSpotify() {
+  try {
+    const s = await api('GET', 'spotify');
+    let t;
+    if (!s.configured) t = 'Not set up: SPOTIFY_CLIENT_SECRET isn\u2019t on the Worker yet.';
+    else if (s.status === 'ok') t = 'Connected. Reconnect Spotify by ' + (s.reconnectBy ? new Date(s.reconnectBy).toLocaleDateString() : '?') + ' (Spotify sign-ins last 6 months).';
+    else if (s.status === 'needs_reconsent') t = 'Spotify needs reconnecting.';
+    else t = 'Not connected.';
+    $('sp-status').textContent = t;
+    $('sp-connect').textContent = s.status === 'ok' || s.status === 'needs_reconsent' ? 'Reconnect Spotify' : 'Connect Spotify';
+  } catch (e) {
+    $('sp-status').textContent = 'Could not load: ' + e.message;
+  }
+}
+
+$('sp-disconnect').addEventListener('click', async () => {
+  if (!confirm('Disconnect Spotify? The frame\u2019s player stops until you reconnect.')) return;
+  try {
+    await api('POST', 'spotify/disconnect');
+    $('sp-out').textContent = 'Disconnected.';
+    loadSpotify();
+  } catch (e) {
+    $('sp-out').textContent = 'Failed: ' + e.message;
+  }
+});
+
+const spotifyParam = new URLSearchParams(location.search).get('spotify');
+if (spotifyParam) $('sp-out').textContent = SPOTIFY_MSG[spotifyParam] || 'Spotify sign-in failed: ' + spotifyParam;
+
 const oauth = new URLSearchParams(location.search).get('oauth');
 if (oauth) $('grant-out').textContent = oauth === 'ok' ? 'Google connected.' : 'Google sign-in failed: ' + oauth;
 
 loadStatus();
+loadSpotify();
 loadCalendars();
 loadTaskLists();
 loadPhotos();

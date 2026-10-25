@@ -28,10 +28,13 @@ Alerting (`alert: true`):
 - `frame_never_seen`: no frame has paired yet. Expected until the frame is installed.
 - `grant_calendar_<status>` / `grant_photos_<status>`: a Google grant is missing or needs re-consent.
   Stephen fixes it at `/admin` → Google → Connect.
+- `grant_spotify_needs_reconsent` (Spotify refused the refresh token) and `spotify_reauth_due` (day 168 of
+  Spotify's 6-month sign-in): Stephen reconnects at `/admin` → Spotify (runbook-controls.md).
 
 Soft (shown, no email): `weather_stale`, `calendar_stale` (the cron will retry; the frame keeps
 showing the last good data), `reflection_no_current_week` (publish the next guide),
-`tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
+`spotify_not_connected` (no `SPOTIFY_CLIENT_SECRET` yet, or Stephen hasn't connected Spotify at
+`/admin`), `tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
 expected until Stephen reconnects at /admin after the P1 deploy, or if he unticks Tasks; at most one
 such code, and it never sets `alert`), `tasks_lists_empty` (Tasks is granted but Google returned no task
 lists, e.g. the grant went to an account without Google Tasks; Chief flags it to Stephen, see
@@ -47,7 +50,7 @@ was published:
   count until its start date.
 
 `reflection` in the JSON: `{currentWeek, weekly: {start, ageDays, stale}, monthly: {start, end,
-ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `frame.build` is the build the frame last reported, so it shows whether
+ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `spotify` is `{configured, status, connectedAt, reconnectBy}`. `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `frame.build` is the build the frame last reported, so it shows whether
 the frame reloaded after a deploy.
 
 ## Email template
