@@ -24,6 +24,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS calendars (
     id TEXT PRIMARY KEY, summary TEXT NOT NULL, color TEXT, is_primary INTEGER NOT NULL DEFAULT 0,
     selected INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
+  // v2 P1: frame settings, one JSON value per key (PLAN-v2.md §7.3).
+  `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL)`,
 ];
 
 const ready = new WeakMap();

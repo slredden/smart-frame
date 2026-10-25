@@ -1,9 +1,23 @@
-# Runbook: choosing calendars (v1.1)
+# Runbook: choosing calendars (v1.1, v2 P1)
 
-The frame shows events from the calendars selected on /admin → **Calendars**. With nothing selected
-it shows the primary calendar only (the v1 behaviour).
+The frame shows events from the calendars selected on /admin → **Calendars**, or on the frame itself
+(Settings → Calendars, or the **Calendars** button on the Calendar screen). With nothing selected it
+shows the primary calendar only (the v1 behaviour).
 
-## After the v1.1 deploy (once)
+## After the v2 P1 deploy (once): batched consent
+
+P1's **Connect calendar** also asks for Google Tasks (`https://www.googleapis.com/auth/tasks`, "Create,
+edit, organize, and delete all your tasks") so v2 needs only one more reconsent. This covers the v1.1
+step below too.
+
+1. Google Cloud console → APIs & Services → enable **Google Tasks API**.
+2. Google Auth Platform → Data Access → add `https://www.googleapis.com/auth/tasks` (and
+   `calendar.calendarlist.readonly` if it's not there yet).
+3. /admin → Google → **Connect calendar** and approve. The Tasks tick box is optional: the calendar
+   connects without it, and `/api/health` then shows only the soft `tasks_scope_missing`.
+   Picking task lists comes with P1b.
+
+## After the v1.1 deploy (once, superseded by the P1 step above)
 
 1. v1.1 asks Google for one more read-only permission, `calendar.calendarlist.readonly`
    ("See the list of Google calendars you're subscribed to"). Listing calendars needs it; reading
@@ -23,7 +37,8 @@ it shows the primary calendar only (the v1 behaviour).
 
 ## Behaviour
 
-- One `events.list` per selected calendar per refresh (every 5 min), today through 30 days ahead.
+- One `events.list` per selected calendar per refresh (every 5 min), from this week's Monday through
+  30 days ahead (the Calendar screen's Week view needs the earlier weekdays; same request count).
   Free-plan Workers allow 50 subrequests per invocation; 25 calendars + weather + a token refresh fit.
 - A calendar that fails (removed, no access) is skipped and logged as `calendar_error` with counts only;
   if every calendar fails the previous cache stays and the usual stale label appears.

@@ -1,6 +1,6 @@
 # smart-frame v2 plan: one Home, nav rail, Calendar, Tasks, Weather, Photos, Reflection, Controls, Settings, alerts and brightness
 
-Status: **approved 2026-10-24** (Stephen, 6:53 PM MT, through Chief: Dev's recommended defaults on Q1, Q2, Q10, Q11 and Q12). **v1.2 and phase F shipped 2026-10-24** (§13.1). P1 and P1b are approved and next; H, P2 and D are not yet approved. It builds on
+Status: **approved 2026-10-24** (Stephen, 6:53 PM MT, through Chief: Dev's recommended defaults on Q1, Q2, Q10, Q11 and Q12). **v1.2, phase F and P1 shipped 2026-10-24** (§13.1). P1b is approved and next; H, P2 and D are not yet approved. It builds on
 [PLAN.md](PLAN.md) (v1, shipped) and v1.1 (shipped, §12). Nothing here changes v1 decisions unless it says
 so. **v2 does change one:** the A/B layouts and the A/B tap swap are removed (§2).
 
@@ -933,13 +933,14 @@ Breakdown inside P1 and P1b:
 | --- | --- | --- |
 | v1.2 | 2026-10-24 | §2.6 deletion list: one Home layout (photo left, info right), `scheduled(minutes, schedule)` → HOME/NIGHT at 6:00–22:00, idle and taps in `nav.js` (a tap at night wakes to Home), no A/B swap. Night dim clock and the "Nothing else today. Next: …" row kept |
 | F | 2026-10-24 | §8.5 freshness codes in `/api/health`, runbook-health codes. The §8.4 routine is Chief's |
+| P1 | 2026-10-24 | Menu rail (built screens only; unbuilt ones hidden by `features`), Home widget taps, 30 s rail peek, 10 min idle → Home/night. Calendar screen (Agenda default, Day, Week; Google colours; calendar picker on the frame), Weather screen (24 h, 10 days, no extra writes), Settings in D1 (schedule, night dim, idle, weather place by Open-Meteo geocoding, calendars; bounded, no lock-out, device-token writes capped at 60/h). Batched consent asks for `tasks`; missing it is the soft `tasks_scope_missing`. Calendar cache now starts at this week's Monday for the Week view |
 
 ## 14. Stephen's manual steps
 
 1. **One Google reconsent for all of v2**, done after P1's first deploy. It also covers v1.1's
    still-pending reconnect. Reconnecting now just for v1.1 means doing it twice.
    - Beforehand, with Chief's guidance: enable **Google Tasks API** in the Cloud project. On the consent
-     screen's Data Access page, add `tasks` (or `tasks.readonly`, per Q10) and
+     screen's Data Access page, add `https://www.googleapis.com/auth/tasks` (Q10) and
      `calendar.calendarlist.readonly`.
    - Click **Connect calendar** on `/admin` once (the same button as the first connect).
    - Load calendars and tick the ones to show. Load task lists and tick the ones to show.

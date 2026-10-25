@@ -2,6 +2,8 @@
 // keeps working. Taps are debounced, and the kiosk's optional Menu button area is left alone.
 
 export const DEBOUNCE_MS = 400;
+// A touch that travels further than this is a scroll (Calendar day grid, hourly strip), not a tap.
+export const MOVE_SLOP = 12;
 // Bottom-left corner reserved for the kiosk's optional Menu button (72×48 dp, plus margin).
 export const MENU_ZONE = { w: 96, h: 72 };
 
@@ -16,9 +18,11 @@ export function inMenuZone(x, y, viewportH) {
 export function createTapFilter(viewportH = 800) {
   let multi = false;
   let lastTap = -Infinity;
+  let start = null;
   return function onEvent(e) {
     if (e.type === 'start') {
       if (e.touches > 1) multi = true;
+      start = e.touches === 1 && typeof e.x === 'number' ? { x: e.x, y: e.y } : null;
       return false;
     }
     if (e.type === 'cancel') {
@@ -31,27 +35,31 @@ export function createTapFilter(viewportH = 800) {
     if (allUp) multi = false;
     if (!allUp || wasMulti) return false;
     if (inMenuZone(e.x, e.y, viewportH)) return false;
+    const moved = start && Math.max(Math.abs(e.x - start.x), Math.abs(e.y - start.y)) > MOVE_SLOP;
+    start = null;
+    if (moved) return false;
     if (e.t - lastTap < DEBOUNCE_MS) return false;
     lastTap = e.t;
     return true;
   };
 }
 
-/** Wires the filter to a DOM element. Mouse clicks also count, for desktop testing. */
+/** Wires the filter to a DOM element; onTap(target). Mouse clicks also count, for desktop testing. */
 export function attachTaps(el, onTap, now = () => performance.now()) {
   const filter = createTapFilter(window.innerHeight || 800);
   let sawTouch = false;
   el.addEventListener('touchstart', (ev) => {
     sawTouch = true;
-    filter({ type: 'start', touches: ev.touches.length, t: now() });
+    const c = ev.touches[0];
+    filter({ type: 'start', touches: ev.touches.length, x: c ? c.clientX : 0, y: c ? c.clientY : 0, t: now() });
   }, { passive: true });
   el.addEventListener('touchcancel', () => filter({ type: 'cancel' }), { passive: true });
   el.addEventListener('touchend', (ev) => {
     const c = ev.changedTouches[0];
-    if (filter({ type: 'end', touches: ev.touches.length, changed: ev.changedTouches.length, x: c ? c.clientX : 0, y: c ? c.clientY : 0, t: now() })) onTap();
+    if (filter({ type: 'end', touches: ev.touches.length, changed: ev.changedTouches.length, x: c ? c.clientX : 0, y: c ? c.clientY : 0, t: now() })) onTap(ev.target);
   }, { passive: true });
   el.addEventListener('click', (ev) => {
     if (sawTouch) return; // touch devices also fire click; touchend already handled it
-    if (filter({ type: 'end', touches: 0, changed: 1, x: ev.clientX, y: ev.clientY, t: now() })) onTap();
+    if (filter({ type: 'end', touches: 0, changed: 1, x: ev.clientX, y: ev.clientY, t: now() })) onTap(ev.target);
   });
 }

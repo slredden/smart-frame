@@ -164,8 +164,82 @@ $('cal-form').addEventListener('submit', async (ev) => {
   }
 });
 
+// ----- Frame settings (PLAN-v2.md §7): view, reset, and a weather-location fallback -----
+const fmtMin = (m) => {
+  const h = Math.floor(m / 60) % 24;
+  return (h % 12 || 12) + ':' + String(m % 60).padStart(2, '0') + (h < 12 ? ' AM' : ' PM');
+};
+const SETTING_TEXT = {
+  schedule: (v) => 'Day ' + fmtMin(v.dayStart) + ' to ' + fmtMin(v.nightStart),
+  night: (v) => 'Night clock at ' + v.dimPct + '%',
+  idle: (v) => 'Back to Home after ' + v.minutes + ' min',
+  weather: (v) => v.name + ' (' + v.lat + ', ' + v.lon + ')',
+  calendar: (v) => 'Calendar opens in ' + v.view + ' view',
+};
+
+async function loadSettings() {
+  try {
+    const r = await api('GET', 'settings');
+    const t = $('set-table');
+    t.textContent = '';
+    for (const s of r.settings) {
+      const tr = document.createElement('tr');
+      for (const text of [s.key, SETTING_TEXT[s.key] ? SETTING_TEXT[s.key](s.value) : JSON.stringify(s.value), s.updatedAt ? new Date(s.updatedAt).toLocaleString() + ' by ' + s.updatedBy.split(':')[0] : 'default']) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.appendChild(td);
+      }
+      t.appendChild(tr);
+    }
+  } catch (e) {
+    $('set-out').textContent = 'Failed: ' + e.message;
+  }
+}
+
+$('wx-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const ul = $('wx-results');
+  ul.textContent = '';
+  try {
+    const r = await api('GET', 'settings/weather/search?q=' + encodeURIComponent($('wx-q').value));
+    for (const p of r.places) {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = [p.name, p.admin1, p.country].filter(Boolean).join(', ');
+      b.addEventListener('click', async () => {
+        try {
+          await api('PUT', 'settings/weather', { name: p.name, lat: p.lat, lon: p.lon, timeZone: p.timeZone });
+          ul.textContent = '';
+          $('set-out').textContent = 'Weather location saved.';
+          loadSettings();
+        } catch (e) {
+          $('set-out').textContent = 'Failed: ' + e.message;
+        }
+      });
+      li.appendChild(b);
+      ul.appendChild(li);
+    }
+    if (!r.places.length) $('set-out').textContent = 'No places found.';
+  } catch (e) {
+    $('set-out').textContent = 'Failed: ' + e.message;
+  }
+});
+
+$('set-reset').addEventListener('click', async () => {
+  if (!confirm('Reset every frame setting to its default?')) return;
+  try {
+    await api('POST', 'settings/reset');
+    $('set-out').textContent = 'Reset. The frame picks it up within a minute.';
+    loadSettings();
+  } catch (e) {
+    $('set-out').textContent = 'Failed: ' + e.message;
+  }
+});
+
 const oauth = new URLSearchParams(location.search).get('oauth');
 if (oauth) $('grant-out').textContent = oauth === 'ok' ? 'Google connected.' : 'Google sign-in failed: ' + oauth;
 
 loadStatus();
 loadCalendars();
+loadSettings();

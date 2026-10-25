@@ -106,7 +106,7 @@ export async function selectedCalendars(db) {
 }
 
 /**
- * Cron step: fetch today through LOOKAHEAD_DAYS from each selected calendar (one request each, in
+ * Cron step: fetch this week's Monday through today + LOOKAHEAD_DAYS from each selected calendar (one request each, in
  * parallel), merge, and cache. A calendar that fails is skipped; if every one fails the old cache stays.
  */
 export async function refreshCalendar(env, { fetchImpl = fetch, nowMs = Date.now() } = {}) {
@@ -116,7 +116,9 @@ export async function refreshCalendar(env, { fetchImpl = fetch, nowMs = Date.now
   const token = await accessToken(env, 'calendar', { fetchImpl, nowMs });
   if (!token) return { ok: false, reason: 'no_grant' };
   const cals = await selectedCalendars(db);
-  const timeMin = new Date(startOfDayUtc(today, tz)).toISOString();
+  // From this week's Monday, so the Week view has the days already gone (same one request per calendar).
+  const from = mondayOf(today);
+  const timeMin = new Date(startOfDayUtc(from, tz)).toISOString();
   const timeMax = new Date(startOfDayUtc(addDays(today, LOOKAHEAD_DAYS), tz)).toISOString();
   const results = await Promise.all(
     cals.map(async (c) => {
@@ -134,12 +136,9 @@ export async function refreshCalendar(env, { fetchImpl = fetch, nowMs = Date.now
   const failed = results.length - good.length;
   if (failed) log('calendar_error', { failed, of: results.length, code: (results.find((r) => !r.ok) || {}).code });
   if (!good.length) return { ok: false };
-  const tomorrowEnd = startOfDayUtc(addDays(today, 2), tz);
+  // v2: keep the whole window (today through LOOKAHEAD_DAYS) for the Calendar screen (PLAN-v2.md §3.4).
   const all = [].concat(...good.map((r) => r.events)).sort((a, b) => startMs(a, tz) - startMs(b, tz));
-  // Keep today and tomorrow in full, plus only the first event after them (the look-ahead).
-  const near = all.filter((e) => startMs(e, tz) < tomorrowEnd);
-  const later = all.find((e) => startMs(e, tz) >= tomorrowEnd);
-  await putCache(db, CAL_KEY, { events: later ? near.concat([later]) : near, day: today, calendars: cals.length, failed }, nowMs);
+  await putCache(db, CAL_KEY, { events: all, day: today, from, calendars: cals.length, failed }, nowMs);
   await setMeta(db, 'calendar_ok_at', nowIso(nowMs));
   return { ok: true, calendars: cals.length, failed };
 }
@@ -214,6 +213,40 @@ export async function setSelection(db, ids) {
     ...uniq.map((id) => db.prepare('UPDATE calendars SET selected = 1 WHERE id = ?').bind(id)),
   ]);
   return { ok: true, selected: uniq.length };
+}
+
+/** The Monday on or before a YYYY-MM-DD date. */
+export function mondayOf(ymd) {
+  const dow = new Date(ymd + 'T12:00:00Z').getUTCDay();
+  return addDays(ymd, -((dow + 6) % 7));
+}
+
+/** Longest slice the frame can ask for in one call. */
+export const MAX_WINDOW_DAYS = 14;
+
+/**
+ * GET /api/calendar: `days` days from `from`, each split like dayView. Days before the cached window
+ * (the cron fetches from this week's Monday on) come back with `loaded: false` so the frame can say so.
+ */
+export function calendarWindow(cache, from, days, tz) {
+  const events = (cache && cache.events) || [];
+  const loadedFrom = cache ? cache.from || cache.day : null;
+  const loadedTo = cache ? addDays(cache.day, LOOKAHEAD_DAYS) : null;
+  const out = [];
+  for (let i = 0; i < days; i++) {
+    const ymd = addDays(from, i);
+    const loaded = !!loadedFrom && ymd >= loadedFrom && ymd < loadedTo;
+    out.push(Object.assign({ ymd, loaded }, loaded ? dayView(events, ymd, tz) : { allDay: [], timed: [] }));
+  }
+  const end = startOfDayUtc(addDays(from, days), tz);
+  let next = null;
+  for (const e of events) {
+    if (startMs(e, tz) >= end) {
+      next = withColor({ title: e.title, start: e.start, allDay: e.allDay }, e);
+      break;
+    }
+  }
+  return { from, days: out, loadedFrom, loadedTo, next };
 }
 
 export async function cachedCalendar(db) {

@@ -84,7 +84,7 @@ describe('calendar selection (v1.1)', () => {
     const env = testEnv();
     await setup(env);
     const url = new URL(await startAuth(env, 'calendar', ORIGIN));
-    expect(url.searchParams.get('scope')).toBe(CAL_SCOPES);
+    expect(url.searchParams.get('scope')).toBe(CAL_SCOPES + ' https://www.googleapis.com/auth/tasks'); // P1: Tasks asked in the same consent
     const r = await connect(env, 'calendar', 'https://www.googleapis.com/auth/calendar.events.readonly');
     expect(r).toMatchObject({ ok: false, error: 'scope_missing' });
   });
@@ -141,7 +141,7 @@ describe('calendar selection (v1.1)', () => {
     expect((await setSelection(env.FRAME_DB, Array.from({ length: MAX_SELECTED + 1 }, (_, i) => 'c' + i))).error).toBe('too_many_calendars');
   });
 
-  it('fetches every selected calendar, merges with colors, skips a failing one, and keeps one look-ahead event', async () => {
+  it('fetches every selected calendar, merges with colors, skips a failing one, and keeps the whole window', async () => {
     const env = testEnv();
     await setup(env);
     await connect(env, 'calendar', CAL_SCOPES);
@@ -155,6 +155,7 @@ describe('calendar selection (v1.1)', () => {
       if (s.includes('/calendars/' + encodeURIComponent('me@example.com') + '/events')) return json({ items: [] });
       if (s.includes('/calendars/' + encodeURIComponent('family@group.calendar.google.com') + '/events')) {
         expect(new URL(s).searchParams.get('timeMax')).toBe('2026-11-23T07:00:00.000Z'); // 30 days ahead, Denver midnight
+        expect(new URL(s).searchParams.get('timeMin')).toBe('2026-10-19T06:00:00.000Z'); // P1: from this week's Monday
         return json({
           items: [
             { summary: 'Soccer', start: { dateTime: '2026-11-02T17:00:00-07:00' }, end: { dateTime: '2026-11-02T18:00:00-07:00' } },
@@ -168,7 +169,8 @@ describe('calendar selection (v1.1)', () => {
     expect(r).toMatchObject({ ok: true, calendars: 3, failed: 1 });
     expect(calls).toBe(3);
     const c = await cachedCalendar(env.FRAME_DB);
-    expect(c.value.events.map((e) => e.title)).toEqual(['Soccer']); // only the first event after tomorrow is kept
+    expect(c.value.events.map((e) => e.title)).toEqual(['Soccer', 'Later thing']); // v2: the whole window, for the Calendar screen
+    expect(c.value).toMatchObject({ day: '2026-10-24', from: '2026-10-19' });
     const p = calendarPayload(c.value.events, NOW, 'America/Denver');
     expect(p.today.timed).toEqual([]);
     expect(p.tomorrowFirst).toBe(null);

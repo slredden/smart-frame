@@ -30,7 +30,10 @@ Alerting (`alert: true`):
   Stephen fixes it at `/admin` → Google → Connect.
 
 Soft (shown, no email): `weather_stale`, `calendar_stale` (the cron will retry; the frame keeps
-showing the last good data), `reflection_no_current_week` (publish the next guide), and the two
+showing the last good data), `reflection_no_current_week` (publish the next guide),
+`tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
+expected until Stephen reconnects at /admin after the P1 deploy, or if he unticks Tasks; at most one
+such code, and it never sets `alert`), and the two
 freshness codes below (PLAN-v2.md §8.5). Both use the guide's coverage dates in Denver, not when it
 was published:
 
@@ -42,7 +45,7 @@ was published:
   count until its start date.
 
 `reflection` in the JSON: `{currentWeek, weekly: {start, ageDays, stale}, monthly: {start, end,
-ageDays, stale}, publishedAt}`. `frame.build` is the build the frame last reported, so it shows whether
+ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `frame.build` is the build the frame last reported, so it shows whether
 the frame reloaded after a deploy.
 
 ## Email template

@@ -1,54 +1,121 @@
 import { describe, it, expect } from 'vitest';
-import { HOME, NIGHT, initialState, awake, screenAt, tap, msUntilIdle } from '../../frame/src/nav.js';
+import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, initialState, railItems, viewEnabled, awake, screenAt, railShown, tap, msUntilIdle } from '../../frame/src/nav.js';
+import { minutesOfDay } from '../../shared/time.js';
 
 const IDLE = 10 * 60000;
+const PEEK = RAIL_PEEK_S * 1000;
 const m = (h, mm = 0) => h * 60 + mm;
+const P1 = { calendar: true, weather: true };
 
-describe('taps and idle (v1.2: one Home layout, no A/B swap)', () => {
-  it('day: a tap keeps Home and only restarts the idle timer', () => {
-    let s = tap(initialState(), 1000);
-    expect(screenAt(s, m(12), 1000, IDLE)).toBe(HOME);
-    s = tap(s, 2000);
-    expect(screenAt(s, m(12), 2000, IDLE)).toBe(HOME);
-    expect(msUntilIdle(s, 2000, IDLE)).toBe(IDLE);
+describe('rail items', () => {
+  it('shows Home, the built screens in rail order, and Settings last', () => {
+    expect(railItems({})).toEqual(['home', SETTINGS]);
+    expect(railItems(P1)).toEqual(['home', 'calendar', 'weather', SETTINGS]);
+    const all = { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: true };
+    expect(railItems(all)).toEqual(['home', 'calendar', 'tasks', 'weather', 'photos', 'reflection', 'controls', SETTINGS]);
   });
 
-  it('the 6-7 AM slot is plain Home, and a tap there changes nothing', () => {
-    expect(screenAt(initialState(), m(6, 30), 0, IDLE)).toBe(HOME);
-    expect(screenAt(tap(initialState(), 0), m(6, 30), 0, IDLE)).toBe(HOME);
+  it('only counts flags that are exactly true, and Settings can never be hidden', () => {
+    expect(railItems({ calendar: 'yes', weather: 1, settings: false })).toEqual(['home', SETTINGS]);
+    expect(viewEnabled(SETTINGS, { settings: false })).toBe(true);
+    expect(viewEnabled('reflection', P1)).toBe(false);
+    expect(viewEnabled('calendar', P1)).toBe(true);
+  });
+});
+
+describe('taps (PLAN-v2.md §2.3)', () => {
+  it('night: a tap wakes to Home with the rail peeking, never a widget or rail item', () => {
+    for (const target of [null, { go: 'weather' }, { rail: 'calendar' }]) {
+      const s = tap(initialState(), 0, NIGHT, target);
+      expect(screenAt(s, m(23), 0, IDLE)).toBe(HOME);
+      expect(railShown(s, HOME, 0)).toBe(true);
+    }
   });
 
-  it('night: a tap wakes to Home, and another tap stays on Home', () => {
-    expect(screenAt(initialState(), m(23), 0, IDLE)).toBe(NIGHT);
-    let s = tap(initialState(), 0);
-    expect(screenAt(s, m(23), 0, IDLE)).toBe(HOME);
-    s = tap(s, 5000);
-    expect(screenAt(s, m(23), 5000, IDLE)).toBe(HOME);
+  it('Home: a widget opens its screen', () => {
+    const s = tap(initialState(), 0, HOME, { go: 'weather' });
+    expect(screenAt(s, m(12), 0, IDLE)).toBe('weather');
+    expect(railShown(s, 'weather', 0)).toBe(true);
+    const c = tap(initialState(), 0, HOME, { go: 'calendar' });
+    expect(screenAt(c, m(12), 0, IDLE)).toBe('calendar');
   });
 
-  it('falls back to the night clock after the idle timeout, and each tap restarts it', () => {
-    let s = tap(initialState(), 0);
-    s = tap(s, IDLE - 1000);
-    expect(screenAt(s, m(23), IDLE - 1000 + IDLE - 1, IDLE)).toBe(HOME);
-    expect(screenAt(s, m(23), IDLE - 1000 + IDLE, IDLE)).toBe(NIGHT);
-    expect(awake(s, IDLE - 1000 + IDLE, IDLE)).toBe(false);
-    expect(msUntilIdle(s, IDLE * 5, IDLE)).toBe(null);
+  it('Home: anywhere else peeks the rail for 30 s, and another tap restarts it', () => {
+    let s = tap(initialState(), 0, HOME, null);
+    expect(screenAt(s, m(12), 0, IDLE)).toBe(HOME);
+    expect(railShown(s, HOME, PEEK - 1)).toBe(true);
+    expect(railShown(s, HOME, PEEK)).toBe(false);
+    s = tap(s, 20000, HOME, null);
+    expect(railShown(s, HOME, 20000 + PEEK - 1)).toBe(true);
   });
 
-  it('is not awake before any touch', () => {
-    expect(awake(initialState(), 0, IDLE)).toBe(false);
-    expect(msUntilIdle(initialState(), 0, IDLE)).toBe(null);
+  it('a rail item works only while the rail shows', () => {
+    // Rail hidden on Home: the tap peeks instead of navigating.
+    const hidden = tap(initialState(), 0, HOME, { rail: 'calendar' });
+    expect(screenAt(hidden, m(12), 0, IDLE)).toBe(HOME);
+    expect(railShown(hidden, HOME, 0)).toBe(true);
+    const s = tap(hidden, 1000, HOME, { rail: 'calendar' });
+    expect(screenAt(s, m(12), 1000, IDLE)).toBe('calendar');
+    const w = tap(s, 2000, 'calendar', { rail: 'weather' });
+    expect(screenAt(w, m(12), 2000, IDLE)).toBe('weather');
+    const h = tap(w, 3000, 'weather', { rail: 'home' });
+    expect(screenAt(h, m(12), 3000, IDLE)).toBe(HOME);
+    expect(railShown(h, HOME, 3000)).toBe(false);
   });
 
-  it('a monotonic clock going backwards counts as idle', () => {
-    const s = tap(initialState(), 5000);
-    expect(awake(s, 1000, IDLE)).toBe(false);
-    expect(screenAt(s, m(23), 1000, IDLE)).toBe(NIGHT);
+  it('on another screen a plain tap keeps it open and restarts the idle timer', () => {
+    let s = tap(initialState(), 0, HOME, { go: 'calendar' });
+    s = tap(s, 5000, 'calendar', null);
+    expect(screenAt(s, m(12), 5000, IDLE)).toBe('calendar');
+    expect(msUntilIdle(s, 5000, IDLE)).toBe(IDLE);
+  });
+});
+
+describe('idle', () => {
+  it('returns to Home by day after the timeout', () => {
+    const s = tap(initialState(), 0, HOME, { go: 'weather' });
+    expect(screenAt(s, m(12), IDLE - 1, IDLE)).toBe('weather');
+    expect(screenAt(s, m(12), IDLE, IDLE)).toBe(HOME);
   });
 
-  it('uses the configured schedule when idle', () => {
+  it('returns to the night clock at night after the timeout', () => {
+    let s = tap(initialState(), 0, NIGHT, null);
+    s = tap(s, 1000, HOME, { go: 'calendar' });
+    expect(screenAt(s, m(23), 1000 + IDLE - 1, IDLE)).toBe('calendar');
+    expect(screenAt(s, m(23), 1000 + IDLE, IDLE)).toBe(NIGHT);
+    expect(awake(s, 1000 + IDLE, IDLE)).toBe(false);
+    expect(msUntilIdle(s, 1000 + IDLE, IDLE)).toBe(null);
+  });
+
+  it('a tap after idling starts from Home, not the screen left open', () => {
+    let s = tap(initialState(), 0, HOME, { go: 'calendar' });
+    // Idle: the schedule showed Home, so this tap is a Home tap (peek), not a calendar tap.
+    s = tap(s, IDLE * 2, HOME, null);
+    expect(screenAt(s, m(12), IDLE * 2, IDLE)).toBe(HOME);
+    expect(railShown(s, HOME, IDLE * 2)).toBe(true);
+  });
+
+  it('follows the configured idle minutes and schedule', () => {
+    const s = tap(initialState(), 0, HOME, { go: 'weather' });
+    expect(screenAt(s, m(12), 60000, 60000)).toBe(HOME);
     const sched = { dayStart: m(8), nightStart: m(20) };
     expect(screenAt(initialState(), m(7), 0, IDLE, sched)).toBe(NIGHT);
     expect(screenAt(initialState(), m(8), 0, IDLE, sched)).toBe(HOME);
+  });
+
+  it('is not awake before any touch, and a clock going backwards counts as idle', () => {
+    expect(awake(initialState(), 0, IDLE)).toBe(false);
+    const s = tap(initialState(), 5000, HOME, { go: 'weather' });
+    expect(screenAt(s, m(23), 1000, IDLE)).toBe(NIGHT);
+  });
+
+  it('uses Denver wall time on both DST change days', () => {
+    const tz = 'America/Denver';
+    const s = tap(initialState(), 0, HOME, { go: 'weather' });
+    // 2026-11-01 (fall back): 10:30 PM MST is night once idle.
+    expect(screenAt(s, minutesOfDay(Date.parse('2026-11-02T05:30:00Z'), tz), IDLE, IDLE)).toBe(NIGHT);
+    // 2027-03-14 (spring forward): 6:30 AM MDT is Home once idle.
+    expect(screenAt(s, minutesOfDay(Date.parse('2027-03-14T12:30:00Z'), tz), IDLE, IDLE)).toBe(HOME);
+    expect(screenAt(s, minutesOfDay(Date.parse('2027-03-14T11:30:00Z'), tz), IDLE, IDLE)).toBe(NIGHT);
   });
 });
