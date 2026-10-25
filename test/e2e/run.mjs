@@ -713,6 +713,105 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   if (page.errors.length) failures.push('spotify absent: JS errors: ' + page.errors.join(' | '));
   await page.close();
 }
+// P2.1 Recent sheet: 10 tiles with no scrolling at 1280×800, a tap plays that context and closes the
+// sheet, the Playlists tab scrolls, outside tap / Close / 30 s idle close it, and nothing in it toggles
+// the rail. The 30 s is ?sheetidle=2500 here.
+{
+  const page = await open({ screen: 'controls', at: AT, extra: '&sheetidle=2500' });
+  await sleep(10600); // the rail from opening the screen hides after 10 s
+  const railOn = async () => (await bodyOf(page)).split(/\s+/).includes('rail-on');
+  if (await railOn()) failures.push('recent: rail still shown before the test');
+  await tapSel(page, '[data-act="sp-recent"]');
+  await sleep(300);
+  if (!(await countOf(page, '#sheet.open .sp-pick-recent'))) failures.push('recent: sheet did not open');
+  const n = await countOf(page, '.sp-pick-recent .sp-tile');
+  if (n !== 10) failures.push('recent: ' + n + ' tiles, wanted 10');
+  const fit = await page.evaluate(() => {
+    const list = document.querySelector('.sp-pick-recent');
+    const body = document.querySelector('.sheet-body');
+    const panel = document.querySelector('.sheet-panel').getBoundingClientRect();
+    const lb = list.getBoundingClientRect();
+    const tiles = Array.prototype.map.call(document.querySelectorAll('.sp-pick-recent .sp-tile'), (t) => t.getBoundingClientRect());
+    const arts = Array.prototype.map.call(document.querySelectorAll('.sp-pick-recent .sp-tile-art'), (a) => Math.round(a.getBoundingClientRect().width));
+    const cols = new Set(tiles.map((t) => Math.round(t.left))).size;
+    return {
+      listScroll: list.scrollHeight - list.clientHeight,
+      bodyScroll: body.scrollHeight - body.clientHeight,
+      panelTop: panel.top,
+      panelBottom: panel.bottom,
+      clipped: tiles.filter((t) => t.top < lb.top - 0.5 || t.bottom > lb.bottom + 0.5).length,
+      arts: Array.from(new Set(arts)),
+      cols,
+      types: Array.prototype.map.call(document.querySelectorAll('.sp-pick-recent .sp-tile-type'), (e) => e.textContent).join(','),
+    };
+  });
+  if (fit.listScroll > 0 || fit.bodyScroll > 0 || fit.clipped || fit.panelTop < 0 || fit.panelBottom > 800) failures.push('recent: does not fit at 1280×800 ' + JSON.stringify(fit));
+  if (fit.cols !== 2 || fit.arts.join() !== '72') failures.push('recent: grid ' + JSON.stringify(fit));
+  if (!/^Playlist,Album,Artist,Album,Playlist/.test(fit.types)) failures.push('recent: type labels ' + fit.types);
+  await page.screenshot({ path: join(OUT, 'controls-recent.png') });
+  await auditHits(page, 'controls-recent');
+  // Playlists tab: 20 rows in the same box, which scrolls.
+  await tapSel(page, '[data-act="sp-tab"][data-tab="playlists"]');
+  // Audit before scrolling: a scrolled-away row is clipped by the list, not under the tabs.
+  await auditHits(page, 'controls-recent-playlists');
+  const pl = await page.evaluate(() => {
+    const list = document.querySelector('.sp-pick-playlists');
+    if (!list) return null;
+    list.scrollTop = 300;
+    return { n: list.querySelectorAll('.sp-tile').length, over: list.scrollHeight - list.clientHeight, top: list.scrollTop, oy: getComputedStyle(list).overflowY };
+  });
+  if (!pl || pl.n !== 20 || pl.over <= 0 || pl.top <= 0 || pl.oy !== 'auto') failures.push('recent: playlists tab ' + JSON.stringify(pl));
+  await page.screenshot({ path: join(OUT, 'controls-recent-playlists.png') });
+  // Touches keep it open past the idle time; then it closes on its own.
+  await sleep(1500);
+  await tapSel(page, '[data-act="sp-tab"][data-tab="recent"]');
+  await sleep(1500);
+  if (!(await countOf(page, '#sheet.open'))) failures.push('recent: closed although touched within the idle time');
+  await sleep(1500);
+  if (await countOf(page, '#sheet.open')) failures.push('recent: did not close after the idle time');
+  if (await railOn()) failures.push('recent: a sheet touch showed the rail');
+  // A tile plays that context from the start and closes the sheet.
+  await tapSel(page, '[data-act="sp-pause"]');
+  await tapSel(page, '[data-act="sp-recent"]');
+  await sleep(300);
+  const uri = await page.evaluate(() => document.querySelector('.sp-pick-recent .sp-tile:nth-child(3)').getAttribute('data-uri'));
+  await tapSel(page, '.sp-pick-recent .sp-tile:nth-child(3)');
+  const last = (await callsOf(page, 'spotify')).at(-1);
+  if (!last || last.action !== 'play' || !last.body || last.body.context_uri !== uri || Object.keys(last.body).length !== 1) failures.push('recent: play request ' + JSON.stringify(last));
+  if (await countOf(page, '#sheet.open')) failures.push('recent: tile tap did not close the sheet');
+  if (!(await countOf(page, '[data-act="sp-pause"]'))) failures.push('recent: card did not switch to playing');
+  if (await railOn()) failures.push('recent: a tile tap showed the rail');
+  // Outside tap closes (and doesn't show the rail); so does Close.
+  await tapSel(page, '[data-act="sp-recent"]');
+  await page.touchscreen.tap(1240, 400);
+  await sleep(550);
+  if (await countOf(page, '#sheet.open')) failures.push('recent: outside tap did not close');
+  if (await railOn()) failures.push('recent: outside tap showed the rail');
+  await tapSel(page, '[data-act="sp-recent"]');
+  await tapSel(page, '[data-act="sheet-done"]');
+  if (await countOf(page, '#sheet.open')) failures.push('recent: Close did not close');
+  if (await railOn()) failures.push('recent: Close showed the rail');
+  if ((await callsOf(page, 'spotifyRecent')).length < 4) failures.push('recent: fetches ' + (await callsOf(page, 'spotifyRecent')).length);
+  console.log('spotify recent'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('spotify recent: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+{
+  // A grant without the new scopes: the reconnect message, playback untouched.
+  const page = await open({ screen: 'controls', at: AT, extra: '&recent=consent' });
+  await tapSel(page, '[data-act="sp-recent"]');
+  await sleep(300);
+  const m = await textOf(page, '.sp-pick-msg');
+  if (m !== 'Reconnect Spotify on /admin to see recent') failures.push('recent consent: message "' + m + '"');
+  if (await countOf(page, '.sp-tile')) failures.push('recent consent: shows tiles');
+  await page.screenshot({ path: join(OUT, 'controls-recent-consent.png') });
+  await tapSel(page, '[data-act="sheet-done"]');
+  await tapSel(page, '[data-act="sp-pause"]');
+  if (!(await countOf(page, '[data-act="sp-play"]'))) failures.push('recent consent: playback controls broke');
+  console.log('recent consent'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('recent consent: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
 {
   // Idle return from Controls stops the polls.
   const page = await open({ screen: 'controls', at: AT, extra: '&idle=0.05' });

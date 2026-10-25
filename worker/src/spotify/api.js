@@ -12,28 +12,31 @@ const DEVICES_KEY = 'spotify_devices';
 const LAST_KEY = 'spotify_last_device';
 
 const fail = (status, error, extra = {}) => Object.assign({ ok: false, status, error }, extra);
+export { fail };
 
 /** Maps a non-2xx Spotify reply to the frame's error. */
 async function failure(res) {
   let reason = '';
   try {
     const b = await res.json();
-    if (b && b.error && typeof b.error.reason === 'string') reason = b.error.reason;
+    // Spotify's reason is a short enum (PREMIUM_REQUIRED, NO_ACTIVE_DEVICE...); safe to log, never shown.
+    if (b && b.error && typeof b.error.reason === 'string') reason = b.error.reason.slice(0, 40);
   } catch {
     // no body
   }
   if (res.status === 429) {
     const ra = Number(res.headers.get('retry-after'));
     const retryAfter = Number.isFinite(ra) && ra > 0 ? Math.min(3600, Math.ceil(ra)) : reason === 'QUOTA_EXCEEDED' ? 60 : 30;
-    return fail(429, 'spotify_busy', { retryAfter });
+    return fail(429, 'spotify_busy', { retryAfter, spStatus: 429, reason });
   }
-  if (res.status === 403) return fail(403, 'premium_needed');
-  if (res.status === 404) return fail(409, 'no_active_device');
-  if (res.status === 401) return fail(502, 'spotify_unauthorized');
-  return fail(502, 'spotify_error');
+  const extra = { spStatus: res.status, reason };
+  if (res.status === 403) return fail(403, 'premium_needed', extra);
+  if (res.status === 404) return fail(409, 'no_active_device', extra);
+  if (res.status === 401) return fail(502, 'spotify_unauthorized', extra);
+  return fail(502, 'spotify_error', extra);
 }
 
-async function call(token, method, path, body, fetchImpl) {
+export async function call(token, method, path, body, fetchImpl) {
   const init = { method, headers: { Authorization: 'Bearer ' + token } };
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
@@ -132,14 +135,28 @@ export async function spotifyState(env, { fetchImpl = fetch, nowMs = Date.now(),
   };
 }
 
-/** Play with no active device: the remembered device by name (ignoring case), or 409 device_absent. */
-async function playOnRemembered(env, token, fetchImpl) {
+/** P2.1: a playlist, album or artist from the Recent sheet. Spotify ids are 22 base-62 characters. */
+export const CONTEXT_RE = /^spotify:(playlist|album|artist):[A-Za-z0-9]{22}$/;
+
+/** The /me/player/play body for a context: from the beginning (playlists and albums), shuffle untouched. */
+export function contextBody(uri) {
+  const type = CONTEXT_RE.exec(uri)[1];
+  return type === 'artist' ? { context_uri: uri } : { context_uri: uri, offset: { position: 0 }, position_ms: 0 };
+}
+
+/**
+ * Play with no active device: the remembered device by name (ignoring case), or 409 device_absent.
+ * With a context (P2.1) it plays that context on the device; without one it transfers and resumes.
+ */
+async function playOnRemembered(env, token, fetchImpl, playBody) {
   const d = await fetchDevices(env, token, fetchImpl);
   if (!d.ok) return d;
   const name = await lastDevice(env.FRAME_DB);
   const hit = d.devices.find((x) => sameName(x.name, name));
   if (!hit) return fail(409, 'device_absent', { name, devices: d.devices.map((x) => ({ id: x.id, name: x.name, type: x.type })) });
-  const r = await call(token, 'PUT', '/me/player', { device_ids: [hit.id], play: true }, fetchImpl);
+  const r = playBody
+    ? await call(token, 'PUT', '/me/player/play?device_id=' + encodeURIComponent(hit.id), playBody, fetchImpl)
+    : await call(token, 'PUT', '/me/player', { device_ids: [hit.id], play: true }, fetchImpl);
   return r.ok ? { ok: true, body: { ok: true, device: hit.name } } : r;
 }
 
@@ -149,6 +166,11 @@ export async function spotifyAction(env, action, body, { fetchImpl = fetch, nowM
   const b = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   let volume = null;
   let target = null;
+  let playBody;
+  if (action === 'play' && b.context_uri !== undefined) {
+    if (typeof b.context_uri !== 'string' || !CONTEXT_RE.test(b.context_uri)) return fail(400, 'bad_context');
+    playBody = contextBody(b.context_uri);
+  }
   if (action === 'volume') {
     volume = b.volume;
     if (typeof volume !== 'number' || !Number.isInteger(volume) || volume < 0 || volume > 100) return fail(400, 'bad_volume');
@@ -162,8 +184,8 @@ export async function spotifyAction(env, action, body, { fetchImpl = fetch, nowM
   if (!token) return fail(409, 'not_connected');
   let r;
   if (action === 'play') {
-    r = await call(token, 'PUT', '/me/player/play', undefined, fetchImpl);
-    if (!r.ok && r.error === 'no_active_device') r = await playOnRemembered(env, token, fetchImpl);
+    r = await call(token, 'PUT', '/me/player/play', playBody, fetchImpl);
+    if (!r.ok && r.error === 'no_active_device') r = await playOnRemembered(env, token, fetchImpl, playBody);
   } else if (action === 'pause') r = await call(token, 'PUT', '/me/player/pause', undefined, fetchImpl);
   else if (action === 'next') r = await call(token, 'POST', '/me/player/next', undefined, fetchImpl);
   else if (action === 'prev') r = await call(token, 'POST', '/me/player/previous', undefined, fetchImpl);
@@ -172,6 +194,6 @@ export async function spotifyAction(env, action, body, { fetchImpl = fetch, nowM
     r = await call(token, 'PUT', '/me/player', { device_ids: [target.id] }, fetchImpl);
     if (r.ok && (await getMeta(env.FRAME_DB, LAST_KEY)) !== target.name) await setMeta(env.FRAME_DB, LAST_KEY, target.name);
   }
-  log('spotify_action', { action, status: r.ok ? 200 : r.status, error: r.ok ? undefined : r.error });
+  log('spotify_action', { action, context: playBody ? true : undefined, status: r.ok ? 200 : r.status, error: r.ok ? undefined : r.error });
   return r.ok ? { ok: true, body: r.body || { ok: true } } : r;
 }

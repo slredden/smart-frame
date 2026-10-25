@@ -905,6 +905,9 @@ saved in the existing `oauth_state` table.
   - `GET /me/player` and `GET /me/player/devices` need `user-read-playback-state`.
   - Transfer, play, pause, next, previous and volume need `user-modify-playback-state`.
   - `user-read-currently-playing` isn't needed, because `GET /me/player` already returns the current item.
+  - P2.1 (2026-10-25) adds two **optional** scopes for the Recent picker: `user-read-recently-played`
+    and `playlist-read-private`. Playback needs only the two above; a grant without the new ones gets
+    `needs_consent` from `/api/spotify/recent` and the soft health code `spotify_recent_needs_consent`.
 - The redirect URI is **`https://smart-frame.sredden.workers.dev/admin/spotify/callback`**.
   - Spotify's rules: exact match; HTTPS required except loopback (`127.0.0.1` / `[::1]`); `localhost`
     not allowed. Enforced for all apps since November 2025.
@@ -1555,6 +1558,7 @@ Breakdown inside P1 and P1b:
 | Rail full width | 2026-10-24 | Off Home, the screen uses all 1280 px while the rail is hidden (no 96 px strip); the rail pushes it right while shown. A transparent 32 px left-edge zone brings the rail back; a blank 96×72 corner keeps the kiosk Menu zone clear. e2e on all 6 non-Home screens: view at x=0, w=1280 when hidden and x=96 when shown, no control under the edge zone, edge tap reveals, checkbox/undo/Settings work with the rail hidden without showing it |
 | P2 Controls (agent side) | 2026-10-24 | Secrets plumbing (`HA_TOKEN`, `SPOTIFY_CLIENT_SECRET` optional in worker-secrets; `SPOTIFY_CLIENT_ID` var). Spotify OAuth on `/admin`, `/api/spotify/state` and actions, last speaker by name, `device_absent`. Cameras via HA (GET only, `controls_cams` allowlist on `/admin`, streamed `no-store` images, indoor 403 unless revealed). No `HA` binding in `wrangler.jsonc` yet: detected at runtime, "not connected" until the VPC Service exists. Controls screen with `features.controls` on: Spotify card (play/pause/skip/volume, optimistic with revert toast, speaker list), 2×2 snapshots (fetched only when `updated` changes, age and stale marks, tap to enlarge), indoor covered with tap-to-show for 30–60 s (Settings › Indoor cameras, off by default), polls every 5 s only while shown. Full-width/push rail and 32 px edge zone respected. Waits on Chief's §14 steps 12–13 and Stephen's Spotify connect |
 | Photos no idle | 2026-10-25 | The idle return to Home no longer applies on the Photos screen (`nav.NO_IDLE`); night mode doesn't take over it either. Other screens unchanged. A reload on Photos resumes Photos |
+| P2.1 Spotify Recent | 2026-10-25 | Controls › Recent: "Play from Spotify" sheet with Recent (≤ 10 contexts, 2×5, no scroll, album when no context, shows skipped, topped up from playlists) and Playlists (≤ 20, scrolls) tabs. `GET /api/spotify/recent` (60 s memory cache, no KV/D1 writes, 404/403 lookups skipped, 429 backoff). Play takes a validated `context_uri` from the start (no offset for artists), shuffle untouched, active → remembered device → 409 `device_absent`. Optional scopes `user-read-recently-played playlist-read-private`; without them `needs_consent` and soft `spotify_recent_needs_consent`. CSP `img-src` adds only `https://i.scdn.co`. Sheet closes on outside tap, Close or 30 s idle; touches never toggle the rail |
 
 ## 14. Stephen's manual steps
 

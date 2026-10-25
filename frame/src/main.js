@@ -42,6 +42,7 @@ if (MOCK) {
   if (params.get('tasks') === 'noscope') mockConfig.tasksScope = false;
   if (params.get('spotify')) mockConfig.spotify = params.get('spotify');
   if (params.get('cams')) mockConfig.cams = params.get('cams');
+  if (params.get('recent')) mockConfig.recent = params.get('recent');
   window.__sfMock = mockConfig;
 }
 
@@ -378,6 +379,8 @@ const ctx = {
   now: nowMs,
   settings,
   sheet: null,
+  /** The Recent sheet's auto-close (30 s; ?sheetidle=ms in mock mode for the e2e test). */
+  sheetIdleMs: MOCK && Number(params.get('sheetidle')) > 0 ? Number(params.get('sheetidle')) : 30000,
   toast,
   slideshow,
   photoSet: () => (data && data.photos && data.photos.setId) || null,

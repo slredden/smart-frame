@@ -5,7 +5,11 @@ import { nowIso, getMeta, setMeta } from '../db.js';
 import { log } from '../http.js';
 
 export const GRANT = 'spotify';
+// Required: playback. The scope_missing check looks at these two only.
 export const SCOPES = ['user-read-playback-state', 'user-modify-playback-state'];
+// Optional (P2.1 Recent picker): asked for, never required. Without them playback works and the Recent
+// sheet says "Reconnect Spotify on /admin to see recent" (soft health code spotify_recent_needs_consent).
+export const OPTIONAL_SCOPES = ['user-read-recently-played', 'playlist-read-private'];
 export const AUTH_URL = 'https://accounts.spotify.com/authorize';
 export const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -37,7 +41,7 @@ export async function startAuth(env, origin, nowMs = Date.now()) {
     client_id: env.SPOTIFY_CLIENT_ID,
     response_type: 'code',
     redirect_uri: redirectUri(origin),
-    scope: SCOPES.join(' '),
+    scope: SCOPES.concat(OPTIONAL_SCOPES).join(' '),
     state,
     show_dialog: 'true',
   });
@@ -138,8 +142,16 @@ export async function disconnect(env, nowMs = Date.now()) {
   await env.FRAME_DB.prepare("DELETE FROM meta WHERE key = 'spotify_connected_at'").run();
 }
 
+/** True when the stored Spotify grant includes both optional Recent scopes. */
+export async function hasRecentScopes(db) {
+  const row = await db.prepare('SELECT scope, status FROM grants WHERE name = ?').bind(GRANT).first();
+  if (!row || row.status !== 'ok') return false;
+  const have = String(row.scope || '').split(/\s+/);
+  return OPTIONAL_SCOPES.every((s) => have.includes(s));
+}
+
 /**
- * Status for /admin and /api/health: {configured, status, connectedAt, reconnectBy, reauthDue}.
+ * Status for /admin and /api/health: {configured, status, connectedAt, reconnectBy, reauthDue, recentScopes}.
  * status is ok | needs_reconsent | disconnected | not_connected.
  */
 export async function spotifyStatus(env, nowMs = Date.now()) {
@@ -150,5 +162,6 @@ export async function spotifyStatus(env, nowMs = Date.now()) {
   const t = connectedAt ? Date.parse(connectedAt) : NaN;
   const reconnectBy = isFinite(t) ? nowIso(t + EXPIRES_DAYS * DAY_MS) : null;
   const reauthDue = isFinite(t) && nowMs - t >= REAUTH_WARN_DAYS * DAY_MS;
-  return { configured: configured(env), status, connectedAt, reconnectBy, reauthDue };
+  const recentScopes = status === 'ok' ? await hasRecentScopes(db) : false;
+  return { configured: configured(env), status, connectedAt, reconnectBy, reauthDue, recentScopes };
 }
