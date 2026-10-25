@@ -16,6 +16,7 @@ import { refreshCalendar, calendarWindow, listCalendars, setSelection, syncCalen
 import { getSettings, putSetting, overWriteBudget } from './settings.js';
 import { getCache } from './db.js';
 import { spotifyState, spotifyAction } from './spotify/api.js';
+import { controlsState, camImage } from './controls.js';
 import { ymdIn } from '../../shared/time.js';
 
 export async function route(request, env, deps = {}) {
@@ -152,6 +153,17 @@ async function deviceApi(request, env, url, device, deps) {
       return error(400, 'bad_json');
     }
     return spotifyReply(await spotifyAction(env, spotifyMatch[1], body, { fetchImpl, nowMs }));
+  }
+
+  // P2 Ring cameras (PLAN-v2.md §11.6, §11.7): reads only.
+  if (path === '/api/controls/state' && method === 'GET') {
+    const r = await controlsState(env);
+    return json(r.body, r.status);
+  }
+  const camMatch = /^\/api\/controls\/cam\/([a-z0-9]{1,8})$/.exec(path);
+  if (camMatch && method === 'GET') {
+    const r = await camImage(env, camMatch[1], url.searchParams.get('reveal') === '1');
+    return r instanceof Response ? r : error(r.status, r.error);
   }
 
   // Everything below writes, so it counts against the device's hourly budget.

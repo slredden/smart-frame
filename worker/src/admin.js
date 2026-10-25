@@ -11,6 +11,7 @@ import { hiddenCount, unhideAll } from './photos.js';
 import { settingsWithHistory, putSetting, resetSettings } from './settings.js';
 import { refreshWeather, searchPlaces } from './weather.js';
 import * as spotify from './spotify/oauth.js';
+import { adminControls, haCameras, saveCams } from './controls.js';
 
 export async function handleAdmin(request, env, url, admin, deps = {}) {
   const fetchImpl = deps.fetchImpl || fetch;
@@ -44,6 +45,18 @@ export async function handleAdmin(request, env, url, admin, deps = {}) {
   if (path === '/admin/api/spotify/disconnect' && method === 'POST') {
     await spotify.disconnect(env);
     return json({ ok: true });
+  }
+  // P2 Controls (PLAN-v2.md §11.3): HA status, HA's camera list, and the camera allowlist.
+  if (path === '/admin/api/controls' && method === 'GET') return json(await adminControls(env));
+  if (path === '/admin/api/controls/cameras' && method === 'GET') {
+    const r = await haCameras(env);
+    return json(r.body, r.status);
+  }
+  if (path === '/admin/api/controls/cams' && method === 'PUT') {
+    const body = await readJson(request, 8 * 1024);
+    if (body.error) return error(400, body.error);
+    const r = await saveCams(db, body.value && body.value.cams);
+    return r.ok ? json(r) : error(400, r.error);
   }
   if (path === '/admin/api/status' && method === 'GET') {
     // An unfinished picker job (e.g. paused on the KV budget) so the page can resume it after a reload.

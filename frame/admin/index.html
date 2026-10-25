@@ -47,6 +47,26 @@
   </section>
 
   <section>
+    <h2>Controls (Ring cameras)</h2>
+    <p>The frame's Controls screen shows up to four Ring cameras through Home Assistant. The Worker only asks
+      HA about the cameras listed here, and only reads. Outdoor cameras show first.</p>
+    <p id="ctl-status">Loading…</p>
+    <p><button type="button" id="ctl-list">List cameras from Home Assistant</button> <span id="ctl-list-out"></span></p>
+    <table id="ctl-table" class="set-table">
+      <thead><tr><th>#</th><th>Camera entity</th><th>Label on the frame</th><th>Indoor</th></tr></thead>
+      <tbody id="ctl-rows"></tbody>
+    </table>
+    <datalist id="ctl-entities"></datalist>
+    <p><button type="button" id="ctl-save">Save cameras</button> <span id="ctl-out"></span></p>
+    <p>
+      <label><input type="checkbox" id="ctl-indoor"> Show indoor cameras on the frame</label>
+      (off: the Worker refuses their images; on: each one stays covered until tapped)
+      <label>Reveal for <select id="ctl-reveal"></select> s</label>
+      <span id="ctl-set-out"></span>
+    </p>
+  </section>
+
+  <section>
     <h2>Calendars</h2>
     <p>Choose which calendars on the Workspace account the frame shows (up to <span id="cal-max">25</span>).
       Nothing selected means the primary calendar only. Untick "alerts" to keep a calendar on the frame

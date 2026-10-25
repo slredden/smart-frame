@@ -15,6 +15,10 @@ files on `reddencloud`. `docs/controls-compose.yaml` is the repo copy of step 2'
 - Spotify, Worker side: `/admin` › Spotify (connect, disconnect, "Reconnect Spotify by"), `GET /api/spotify/state`
   and `POST /api/spotify/{play,pause,next,prev,volume,transfer}` for the frame. Waits on
   `SPOTIFY_CLIENT_SECRET` (worker-secrets) and Stephen's Connect click.
+- Cameras, Worker side: `GET /api/controls/state` (per-camera `updated`, outdoor first) and
+  `GET /api/controls/cam/<c1–c4>` (streamed image) for the frame; `/admin` › Controls (HA status, "List cameras
+  from Home Assistant", the 4-camera allowlist, the indoor switch). No `HA` binding is in `wrangler.jsonc` yet:
+  the Worker detects it at runtime and answers "not connected" (200, `connected:false`) until it exists.
 
 ## Worker side
 
@@ -53,7 +57,8 @@ files on `reddencloud`. `docs/controls-compose.yaml` is the repo copy of step 2'
 ## Health codes
 
 Soft (no email): `controls_not_connected` (no `HA` binding or no `HA_TOKEN` yet), `controls_ha_unreachable`
-(the last HA call failed), `spotify_not_connected` (Spotify not connected on `/admin` yet, or `SPOTIFY_CLIENT_SECRET` not set).
+(the last HA call failed; clears on the next one that reaches HA), `controls_no_cameras` (connected, but no
+cameras mapped on `/admin` › Controls yet), `spotify_not_connected` (Spotify not connected on `/admin` yet, or `SPOTIFY_CLIENT_SECRET` not set).
 Alerting: `spotify_reauth_due`, `grant_spotify_needs_reconsent` (Spotify refused the refresh token).
 
 ## The HA stack on `reddencloud` (PLAN-v2.md §11.9)

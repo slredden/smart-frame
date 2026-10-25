@@ -31,6 +31,8 @@ export const SCHEMA = [
     id TEXT PRIMARY KEY, title TEXT NOT NULL, selected INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0,
     is_default INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
   // v2 P1b: up to 6 published guides, one row per guide start (PLAN-v2.md §8.2). Replaces reflection id = 1.
+  // P2: the Ring cameras the Worker may ask HA about (PLAN-v2.md §11.3). Edited on /admin.
+  `CREATE TABLE IF NOT EXISTS controls_cams (id TEXT PRIMARY KEY, entity_id TEXT NOT NULL UNIQUE, label TEXT NOT NULL, indoor INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS reflection_guides (start TEXT PRIMARY KEY, end TEXT NOT NULL, data_enc TEXT NOT NULL, published_at TEXT NOT NULL)`,
 ];
 

@@ -1,8 +1,8 @@
 // Frame settings (PLAN-v2.md §7.2): defaults, bounds and one pure validator, shared by the Worker
 // (which enforces it) and the frame UI (so steppers can't go out of bounds).
-// P1 keys plus P1b's photos, tasks and alerts (§4, §6, §9). Phase D adds brightness.
+// P1 keys plus P1b's photos, tasks and alerts (§4, §6, §9), and P2's controls (§11.7). Phase D adds brightness.
 
-export const SETTING_KEYS = ['schedule', 'night', 'idle', 'weather', 'calendar', 'photos', 'tasks', 'alerts'];
+export const SETTING_KEYS = ['schedule', 'night', 'idle', 'weather', 'calendar', 'photos', 'tasks', 'alerts', 'controls'];
 
 export const DEFAULT_WEATHER = { name: 'Denver', lat: 39.74, lon: -104.99, timeZone: 'America/Denver' };
 
@@ -16,6 +16,8 @@ export const DEFAULTS = {
   tasks: { onHome: true },
   // Q12 defaults: 10 min lead, chime on at 60%, quiet during the night window, tasks at 9:00 AM.
   alerts: { leadMin: 10, chime: true, volume: 60, quiet: 'night', tasksAt: 540, tasks: true },
+  // Q25: indoor cameras off by default; a tap reveals one for 45 s.
+  controls: { indoor: false, revealSec: 45 },
 };
 
 export const BOUNDS = {
@@ -26,6 +28,7 @@ export const BOUNDS = {
   calendar: { views: ['agenda', 'day', 'week'] },
   photos: { intervals: [15, 30, 60, 120, 300], orders: ['shuffle', 'picked'], fits: ['fit', 'fill'] },
   alerts: { leads: [0, 5, 10, 15, 30, 60], volume: [20, 100], volumeStep: 10, tasksAt: [360, 720], step: 15 },
+  controls: { revealSec: [30, 60], step: 5 },
 };
 
 const FIELDS = {
@@ -37,6 +40,7 @@ const FIELDS = {
   photos: ['intervalSec', 'order', 'captions', 'fit', 'favoritesOnly'],
   tasks: ['onHome'],
   alerts: ['leadMin', 'chime', 'volume', 'quiet', 'tasksAt', 'tasks'],
+  controls: ['indoor', 'revealSec'],
 };
 
 const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
@@ -96,6 +100,9 @@ export function validateSetting(key, patch, current) {
       if (!q || typeof q !== 'object' || Array.isArray(q) || !quarter(q.start) || !quarter(q.end) || q.start === q.end) return { ok: false, error: 'alerts_quiet' };
       v.quiet = { start: q.start, end: q.end };
     }
+  } else if (key === 'controls') {
+    if (!isBool(v.indoor)) return { ok: false, error: 'controls_indoor' };
+    if (!inRange(v.revealSec, b.revealSec) || v.revealSec % b.step) return { ok: false, error: 'controls_reveal' };
   }
   return { ok: true, value: v };
 }

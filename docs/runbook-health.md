@@ -34,7 +34,9 @@ Alerting (`alert: true`):
 Soft (shown, no email): `weather_stale`, `calendar_stale` (the cron will retry; the frame keeps
 showing the last good data), `reflection_no_current_week` (publish the next guide),
 `spotify_not_connected` (no `SPOTIFY_CLIENT_SECRET` yet, or Stephen hasn't connected Spotify at
-`/admin`), `tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
+`/admin`), `controls_not_connected` (no `HA` Workers VPC binding or no `HA_TOKEN` yet),
+`controls_ha_unreachable` (the last HA call failed: tunnel, `cloudflared` or HA down),
+`controls_no_cameras` (HA connected but no cameras mapped at `/admin` › Controls), `tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
 expected until Stephen reconnects at /admin after the P1 deploy, or if he unticks Tasks; at most one
 such code, and it never sets `alert`), `tasks_lists_empty` (Tasks is granted but Google returned no task
 lists, e.g. the grant went to an account without Google Tasks; Chief flags it to Stephen, see
@@ -50,7 +52,7 @@ was published:
   count until its start date.
 
 `reflection` in the JSON: `{currentWeek, weekly: {start, ageDays, stale}, monthly: {start, end,
-ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `spotify` is `{configured, status, connectedAt, reconnectBy}`. `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `frame.build` is the build the frame last reported, so it shows whether
+ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `spotify` is `{configured, status, connectedAt, reconnectBy}`. `controls` is `{connected, reachable, cameras}` (`reachable` is null until the first HA call). `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `frame.build` is the build the frame last reported, so it shows whether
 the frame reloaded after a deploy.
 
 ## Email template
