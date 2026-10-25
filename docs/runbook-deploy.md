@@ -26,13 +26,16 @@ The Worker's secrets are GitHub Actions secrets first, then copied into the Work
 | `HEALTH_TOKEN_HASH`, `PUBLISH_TOKEN_HASH` | Dev: SHA-256 hex of the two tokens; the raw tokens go to Chief by masked secret request |
 | `ADMIN_EMAILS` | Dev: the two addresses in the Access policy (a secret only to keep them out of the repo) |
 | `GOOGLE_CLIENT_SECRET` | Stephen's masked secret request lands on the box as `SMART_FRAME_GOOGLE_CLIENT_SECRET`; Dev pipes it into `gh secret set` |
+| `HA_TOKEN` (optional) | Long-lived token of the non-admin HA user `frame` (Controls cameras). Stephen sets it himself |
+| `SPOTIFY_CLIENT_SECRET` (optional) | The Spotify app's client secret (Controls). Stephen sets it himself. The client id is the `SPOTIFY_CLIENT_ID` var in `wrangler.jsonc` |
 
 Pattern (never echo the value): `printf '%s' "$VALUE" | gh secret set NAME -R slredden/smart-frame`.
 
 To copy them into the Worker, with Stephen's OK and **after the first deploy**: Actions → `worker-secrets`
 → Run workflow (on `main`). `tools/set-worker-secrets.mjs` checks every secret is present and well
 formed, refuses with exit 3 if the `smart-frame` Worker doesn't exist yet (`wrangler secret bulk` would
-otherwise create an empty one), then sends all six in one `wrangler secret bulk` call over stdin. It
+otherwise create an empty one), then sends the six required ones plus whichever optional Controls secrets are set (`HA_TOKEN`,
+`SPOTIFY_CLIENT_SECRET`; skipped while unset, never deleted) in one `wrangler secret bulk` call over stdin. It
 prints names only. Re-run it after rotating any secret. The first deploy without secrets is harmless:
 every route fails closed until they're set.
 

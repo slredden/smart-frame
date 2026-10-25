@@ -42,6 +42,8 @@
     // Google OAuth client id and the Access app's AUD tag (both public, set 2026-10-24).
     "GOOGLE_CLIENT_ID": "869338664734-jpienjie5r7d1f0cjtmp4bdk9c0qb481.apps.googleusercontent.com",
     "ACCESS_TEAM_DOMAIN": "https://aged-lake-40af.cloudflareaccess.com",
+    // Spotify app client id (public; the secret is SPOTIFY_CLIENT_SECRET). PLAN-v2 §11.5.
+    "SPOTIFY_CLIENT_ID": "08de35418963430c97f285f96f2a202b",
     "ACCESS_AUD": "2e921b75e459c3ff59a6f6db9d971045a8bb8d89780841023c58f2fa7a9b90ed" // public AUD tag, not a secret. gitleaks:allow
   },
   "observability": { "enabled": true }
