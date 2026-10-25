@@ -9,7 +9,8 @@ export const ORIGIN = 'https://smart-frame.example.workers.dev';
 
 export function testEnv(extra = {}) {
   const assets = { fetch: async (req) => new Response('static:' + new URL(req.url).pathname, { headers: { 'content-type': 'text/html' } }) };
-  return Object.assign({}, baseEnv, { ASSETS: assets, BUILD_ID: 'test-build' }, extra);
+  // The real HA binding (vpc_services, remote-only) is never used in tests; tests pass a fake HA when they need one.
+  return Object.assign({}, baseEnv, { ASSETS: assets, BUILD_ID: 'test-build', HA: undefined }, extra);
 }
 
 const TABLES = ['devices', 'grants', 'cache', 'reflection', 'photo_sets', 'photos', 'picker_jobs', 'oauth_state', 'meta', 'kv_writes', 'calendars', 'settings', 'tasklists', 'reflection_guides', 'controls_cams'];
