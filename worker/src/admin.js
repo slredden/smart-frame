@@ -10,6 +10,7 @@ import { syncTaskLists, listTaskLists, setTaskListSelection, refreshTasks, tasks
 import { hiddenCount, unhideAll } from './photos.js';
 import { settingsWithHistory, putSetting, resetSettings } from './settings.js';
 import { refreshWeather, searchPlaces } from './weather.js';
+import * as spotify from './spotify/oauth.js';
 
 export async function handleAdmin(request, env, url, admin, deps = {}) {
   const fetchImpl = deps.fetchImpl || fetch;
@@ -29,6 +30,20 @@ export async function handleAdmin(request, env, url, admin, deps = {}) {
   if (path === '/admin/oauth/callback' && method === 'GET') {
     const r = await finishAuth(env, url);
     return redirect('/admin/?oauth=' + (r.ok ? 'ok' : r.error) + (r.grant ? '&grant=' + r.grant : ''));
+  }
+  // P2 Spotify connect (PLAN-v2.md §11.5). Its own callback path, so the Google flow is untouched.
+  if (path === '/admin/spotify/start' && method === 'GET') {
+    if (!spotify.configured(env)) return redirect('/admin/?spotify=spotify_client_missing');
+    return redirect(await spotify.startAuth(env, url.origin));
+  }
+  if (path === '/admin/spotify/callback' && method === 'GET') {
+    const r = await spotify.finishAuth(env, url, { fetchImpl });
+    return redirect('/admin/?spotify=' + (r.ok ? 'ok' : r.error));
+  }
+  if (path === '/admin/api/spotify' && method === 'GET') return json(await spotify.spotifyStatus(env));
+  if (path === '/admin/api/spotify/disconnect' && method === 'POST') {
+    await spotify.disconnect(env);
+    return json({ ok: true });
   }
   if (path === '/admin/api/status' && method === 'GET') {
     // An unfinished picker job (e.g. paused on the KV budget) so the page can resume it after a reload.

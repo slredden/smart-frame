@@ -34,6 +34,19 @@
   </section>
 
   <section>
+    <h2>Spotify</h2>
+    <p>For the frame's Controls screen (play, pause, skip, volume, and which speaker plays). Needs Spotify
+      Premium. The frame never sees a Spotify login. Speakers appear only once Spotify knows them: an idle
+      Echo comes back after "Alexa, Spotify Connect", and a Cast speaker after you play to it once from your phone.</p>
+    <p id="sp-status">Loading…</p>
+    <p>
+      <a class="button" href="./spotify/start" id="sp-connect">Connect Spotify</a>
+      <button type="button" id="sp-disconnect">Disconnect Spotify</button>
+      <span id="sp-out"></span>
+    </p>
+  </section>
+
+  <section>
     <h2>Calendars</h2>
     <p>Choose which calendars on the Workspace account the frame shows (up to <span id="cal-max">25</span>).
       Nothing selected means the primary calendar only. Untick "alerts" to keep a calendar on the frame

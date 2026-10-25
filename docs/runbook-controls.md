@@ -12,6 +12,9 @@ files on `reddencloud`. `docs/controls-compose.yaml` is the repo copy of step 2'
 - Step 12 (tunnel + `cloudflared`) and PLAN-v2 §14 step 13 (Workers VPC Service) are gated until Chief
   sends them. Until then the frame's Controls screen shows "Cameras not connected" and `/api/health` has the
   soft code `controls_not_connected` (no alert).
+- Spotify, Worker side: `/admin` › Spotify (connect, disconnect, "Reconnect Spotify by"), `GET /api/spotify/state`
+  and `POST /api/spotify/{play,pause,next,prev,volume,transfer}` for the frame. Waits on
+  `SPOTIFY_CLIENT_SECRET` (worker-secrets) and Stephen's Connect click.
 
 ## Worker side
 
