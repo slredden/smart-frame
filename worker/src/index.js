@@ -19,6 +19,7 @@ import { spotifyState, spotifyAction } from './spotify/api.js';
 import { spotifyRecent } from './spotify/recent.js';
 import { controlsState, camImage } from './controls.js';
 import { ymdIn } from '../../shared/time.js';
+import { runCleanup } from './cleanup.js';
 
 export async function route(request, env, deps = {}) {
   const url = new URL(request.url);
@@ -264,10 +265,18 @@ export async function runCron(env, nowMs = Date.now(), fetchImpl = fetch) {
   } catch {
     t = { ok: false, reason: 'error' };
   }
+  // P1c photo-set cleanup last, so a failure here never holds up weather, calendar or tasks.
+  let p;
+  try {
+    p = await runCleanup(env, { nowMs });
+  } catch {
+    p = { stopped: 'error', deleted: 0 };
+  }
   log('cron', {
     weather: w.skipped ? 'skip' : w.ok ? 'ok' : 'fail',
     calendar: c.ok ? 'ok' : c.reason || 'fail',
     tasks: t.skipped ? 'skip' : t.ok ? (t.changed ? 'ok' : 'same') : t.reason || 'fail',
+    cleanup: p.stopped + ':' + p.deleted,
   });
 }
 

@@ -242,6 +242,10 @@ describe('photos picker', () => {
     expect(m.items[1].orient).toBe('p');
     const w = await env.FRAME_DB.prepare('SELECT SUM(count) AS n FROM kv_writes').first();
     expect(w.n).toBe(24);
+    // P1c: byte sizes are recorded at copy time.
+    const z = await env.FRAME_DB.prepare('SELECT COUNT(size) AS n, MIN(size) AS lo FROM photos').first();
+    expect(z.n).toBe(24);
+    expect(z.lo).toBeGreaterThan(0);
   });
 
   it('refuses to start when the KV budget cannot fit a full set', async () => {

@@ -8,6 +8,7 @@ import { syncCalendarList, listCalendars, setSelection, refreshCalendar, MAX_SEL
 import { publishReflection } from './reflection.js';
 import { syncTaskLists, listTaskLists, setTaskListSelection, refreshTasks, tasksScope, MAX_LISTS } from './google/tasks.js';
 import { hiddenCount, unhideAll } from './photos.js';
+import { photoSummary, restorePrevious } from './cleanup.js';
 import { settingsWithHistory, putSetting, resetSettings } from './settings.js';
 import { refreshWeather, searchPlaces } from './weather.js';
 import * as spotify from './spotify/oauth.js';
@@ -122,7 +123,12 @@ export async function handleAdmin(request, env, url, admin, deps = {}) {
   }
 
   // P1b photo flags: hidden count and "Unhide all" (PLAN-v2.md §6).
-  if (path === '/admin/api/photos' && method === 'GET') return json({ hidden: await hiddenCount(db) });
+  // P1c adds the sets line (current, previous, cleanup queue, deletes left today, storage).
+  if (path === '/admin/api/photos' && method === 'GET') return json({ hidden: await hiddenCount(db), sets: await photoSummary(db) });
+  if (path === '/admin/api/photos/restore-previous' && method === 'POST') {
+    const r = await restorePrevious(db);
+    return r.swapped ? json({ ok: true, sets: await photoSummary(db) }) : error(409, 'no_previous_set');
+  }
   if (path === '/admin/api/photos/unhide-all' && method === 'POST') return json({ ok: true, unhidden: await unhideAll(db) });
 
   // v2 frame settings (PLAN-v2.md §7.2): view with history, reset, and the weather fallback.

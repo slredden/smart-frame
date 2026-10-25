@@ -20,6 +20,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS oauth_state (state TEXT PRIMARY KEY, grant_name TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS kv_writes (day TEXT PRIMARY KEY, count INTEGER NOT NULL)`,
+  // P1c: KV deletes per UTC day for the photo-set cleanup (its own free-plan budget, apart from writes).
+  `CREATE TABLE IF NOT EXISTS kv_deletes (day TEXT PRIMARY KEY, count INTEGER NOT NULL)`,
   // v1.1: the account's calendar list (synced from Google on /admin) and which ones the frame shows.
   `CREATE TABLE IF NOT EXISTS calendars (
     id TEXT PRIMARY KEY, summary TEXT NOT NULL, color TEXT, is_primary INTEGER NOT NULL DEFAULT 0,
@@ -38,14 +40,20 @@ export const SCHEMA = [
 
 // Columns added to existing tables. SQLite has no ADD COLUMN IF NOT EXISTS, so each runs once per
 // database (meta schema_v) and a "duplicate column" error from a half-finished run is ignored.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 const MIGRATIONS = [
   'ALTER TABLE calendars ADD COLUMN alert INTEGER NOT NULL DEFAULT 1',
   'ALTER TABLE photos ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE photos ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0',
+  // v3 (P1c): bytes per photo recorded at copy time (NULL for older sets), and the cleanup cursor.
+  'ALTER TABLE photos ADD COLUMN size INTEGER',
+  'ALTER TABLE photo_sets ADD COLUMN purge_next INTEGER',
+  // The newest retired set becomes 'previous' (kept for "Restore previous set"); older ones stay queued.
+  `UPDATE photo_sets SET status = 'previous' WHERE set_id = (SELECT set_id FROM photo_sets WHERE status = 'retired' ORDER BY created_at DESC LIMIT 1)
+    AND NOT EXISTS (SELECT 1 FROM photo_sets WHERE status = 'previous')`,
 ];
 
-async function migrate(db) {
+export async function migrate(db) {
   const v = Number(await getMeta(db, 'schema_v')) || 1;
   if (v >= SCHEMA_VERSION) return;
   for (const sql of MIGRATIONS) {

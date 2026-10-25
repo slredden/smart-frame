@@ -231,14 +231,60 @@ $('tl-form').addEventListener('submit', async (ev) => {
   }
 });
 
-// ----- Photos hidden on the frame -----
+// ----- Photos hidden on the frame, and the P1c sets line -----
+const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+const fmtBytes = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB');
+const fmtSet = (s) => (s ? s.count + ' photos, ' + fmtDay(s.date) : 'none');
+
+/** One line: current, previous, cleanup queue, deletes left today, storage (approx. for older sets). */
+function photoSetsLine(s) {
+  return (
+    'Current: ' + fmtSet(s.current) +
+    ' · Previous: ' + fmtSet(s.previous) +
+    ' · Queued for cleanup: ' + s.queued + ' set(s)' +
+    ' · Deletes left today: ' + s.deletesLeft +
+    ' · Storage: ' + (s.storage.approx ? 'approx. ' : '') + fmtBytes(s.storage.bytes)
+  );
+}
+
+function showSets(s) {
+  $('ph-sets').textContent = photoSetsLine(s);
+  $('ph-restore').hidden = !(s.current && s.previous);
+  $('ph-restore-ok').hidden = true;
+}
+
 async function loadPhotos() {
   try {
-    $('ph-hidden').textContent = String((await api('GET', 'photos')).hidden);
+    const r = await api('GET', 'photos');
+    $('ph-hidden').textContent = String(r.hidden);
+    if (r.sets) showSets(r.sets);
   } catch (e) {
     $('ph-out').textContent = 'Failed: ' + e.message;
   }
 }
+
+// "Restore previous set": one tap arms it, one more tap on the confirm button swaps. Again flips back.
+let restoreTimer = 0;
+$('ph-restore').addEventListener('click', () => {
+  $('ph-restore-ok').hidden = false;
+  $('ph-restore-out').textContent = 'The frame switches to the previous set. Press again later to switch back.';
+  clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(() => {
+    $('ph-restore-ok').hidden = true;
+    $('ph-restore-out').textContent = '';
+  }, 8000);
+});
+$('ph-restore-ok').addEventListener('click', async () => {
+  clearTimeout(restoreTimer);
+  $('ph-restore-ok').hidden = true;
+  try {
+    const r = await api('POST', 'photos/restore-previous');
+    showSets(r.sets);
+    $('ph-restore-out').textContent = 'Swapped. The frame shows the other set within a minute.';
+  } catch (e) {
+    $('ph-restore-out').textContent = e.message === 'no_previous_set' ? 'There is no previous set to restore.' : 'Failed: ' + e.message;
+  }
+});
 
 $('ph-unhide').addEventListener('click', async () => {
   try {

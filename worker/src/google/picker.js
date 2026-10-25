@@ -24,6 +24,19 @@ async function addKvWrites(db, n, nowMs) {
     .run();
 }
 
+/**
+ * Atomic swap (P1c): the new set becomes active, the active one becomes 'previous', and the old
+ * 'previous' is retired, which queues it for cleanup. Only while the new set is still 'building',
+ * so a set the cleanup already claimed can never go live.
+ */
+export function goLive(db, setId, count) {
+  return db
+    .prepare(
+      "UPDATE photo_sets SET status = CASE WHEN set_id = ?1 THEN 'active' WHEN status = 'active' THEN 'previous' ELSE 'retired' END, count = CASE WHEN set_id = ?1 THEN ?2 ELSE count END WHERE (set_id = ?1 OR status IN ('active', 'previous')) AND EXISTS (SELECT 1 FROM photo_sets WHERE set_id = ?1 AND status = 'building')",
+    )
+    .bind(setId, count);
+}
+
 /** Orientation and a short 'YYYY-MM' style date from a PickedMediaItem. */
 export function describeItem(item) {
   const meta = (item.mediaFile && item.mediaFile.mediaFileMetadata) || {};
@@ -136,8 +149,8 @@ export async function stepPicker(env, id, { fetchImpl = fetch, nowMs = Date.now(
     await env.FRAME_PHOTOS.put(photoKey(job.set_id, n), bytes, { metadata: { type } });
     writes++;
     await db
-      .prepare('INSERT OR REPLACE INTO photos (set_id, n, w, h, orient, taken, blur) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(job.set_id, n, d.w, d.h, d.orient, d.taken, blur)
+      .prepare('INSERT OR REPLACE INTO photos (set_id, n, w, h, orient, taken, blur, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(job.set_id, n, d.w, d.h, d.orient, d.taken, blur, bytes.byteLength)
       .run();
     count = n;
   }
@@ -151,11 +164,15 @@ export async function stepPicker(env, id, { fetchImpl = fetch, nowMs = Date.now(
     await setJob(db, id, { status: 'failed', count, skipped, error: 'no_photos' }, nowMs);
     return { status: 'failed', message: 'No photos were picked' };
   }
-  // Atomic swap: the new set becomes active and any previous active set is retired, in one statement.
-  await db.batch([
-    db.prepare("UPDATE photo_sets SET status = CASE WHEN set_id = ?1 THEN 'active' ELSE 'retired' END, count = CASE WHEN set_id = ?1 THEN ?2 ELSE count END WHERE set_id = ?1 OR status = 'active'").bind(job.set_id, count),
+  const swap = await db.batch([
+    goLive(db, job.set_id, count),
     db.prepare("UPDATE picker_jobs SET status = 'done', cursor = NULL, count = ?, skipped = ?, updated_at = ? WHERE id = ?").bind(count, skipped, nowIso(nowMs), id),
   ]);
+  if (!swap[0].meta || !swap[0].meta.changes) {
+    // The cleanup already claimed this set as stuck; it must not go live.
+    await setJob(db, id, { status: 'failed', count, skipped, error: 'set_purged' }, nowMs);
+    return { status: 'failed', message: 'This copy was abandoned and cleaned up. Pick the photos again.' };
+  }
   await setMeta(db, 'photo_sync_at', nowIso(nowMs));
   try {
     await fetchImpl(API + '/sessions/' + encodeURIComponent(job.session_id), { method: 'DELETE', headers: auth });
