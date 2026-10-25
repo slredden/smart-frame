@@ -21,7 +21,7 @@ never written to this repo, logs, commits or chat.
 
 ## If the extractor refuses
 
-- `date_range_unparsed`: the date line didn't parse. Pass `--start YYYY-MM-DD --end YYYY-MM-DD`.
+- `date_range_unparsed`: neither a `div.date` nor a `p.meta` line with a parseable range was found. Pass `--start YYYY-MM-DD --end YYYY-MM-DD`.
 - `week_N_heading`: an `<h3>` isn't `Week N · theme`.
 - `week_N_start` / `week_N_end` / `week_N_length`: the weeks don't tile the range (the last week
   can be at most 14 days).
@@ -31,9 +31,14 @@ Fix the guide or pass dates. Don't hand-edit the JSON into the repo.
 
 ## Expected guide structure
 
-`<h1>` title, `<div class="date">` with the overall range (e.g. "October 21 – November 25, 2026"),
-and one `<div class="week">` per week holding `<h3>Week N · Theme</h3>` and `<p class="practice">`.
-A synthetic example is in `test/fixtures/guide-synthetic.html`.
+`<h1>` title, an overall date range (e.g. "October 21 – November 25, 2026"), and one `<div class="week">` per week holding `<h3>Week N · Theme</h3>` and `<p class="practice">`.
+The date range is read from either layout, so both files work without `--start/--end`:
+- Sage's draft: `<div class="date">` (other text around the range, separated by `·`, is fine).
+- The copy published to the private hub: `<p class="meta">` with one `<span>` per item, one of which
+  is the range.
+
+Synthetic examples: `test/fixtures/guide-synthetic.html` (draft) and
+`test/fixtures/guide-synthetic-published.html` (published).
 
 ## Gaps
 

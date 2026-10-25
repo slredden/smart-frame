@@ -1,5 +1,5 @@
 // Guide HTML → reflection JSON (PLAN.md §9.4). Pure, no I/O, so it can be unit-tested on a synthetic guide.
-// Expected structure: <h1>title</h1>, <div class="date">overall range</div>, and one <div class="week">
+// Expected structure: <h1>title</h1>, <div class="date"> or <p class="meta"> overall range, and one <div class="week">
 // per week holding <h3>Week N · theme</h3> and <p class="practice">…</p>. Weeks are 7-day blocks from
 // the guide's start; the last week ends on the guide's end date.
 import { validateGuide } from '../../shared/reflection.js';
@@ -43,14 +43,29 @@ export function parseRange(s) {
 }
 
 /**
+ * The guide's overall date line. Sage's draft has `<div class="date">… · October 21 – November 25, 2026 · …</div>`;
+ * the copy published to the private hub has `<p class="meta"><span>…</span><span>October 21 – November 25,
+ * 2026</span><span>…</span></p>`. Tags become " · " so adjacent spans don't run together ("guideOctober").
+ * Only these two elements are read, so other dates in the body (e.g. a "Praxis day" heading) are ignored.
+ */
+export function dateLineText(html) {
+  const inner =
+    firstMatch(html, /<div[^>]*class="[^"]*\bdate\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ??
+    firstMatch(html, /<(?:p|div)[^>]*class="[^"]*\bmeta\b[^"]*"[^>]*>([\s\S]*?)<\/(?:p|div)>/i) ??
+    '';
+  return text(inner.replace(/<[^>]*>/g, ' · '))
+    .replace(/(?:\s*·\s*)+/g, ' · ')
+    .replace(/^ · | · $/g, '');
+}
+
+/**
  * Returns { guide, problems }. `overrides` may supply {start, end} when the date line can't be parsed.
  * Never includes the input in errors.
  */
 export function extractGuide(html, overrides = {}) {
   const problems = [];
   const title = text(firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i) || '');
-  const dateLine = text(firstMatch(html, /<div[^>]*class="[^"]*\bdate\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i) || '');
-  const range = parseRange(dateLine) || {};
+  const range = parseRange(dateLineText(html)) || {};
   const start = overrides.start || range.start;
   const end = overrides.end || range.end;
   if (!start || !end) problems.push('date_range_unparsed');
