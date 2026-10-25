@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { extractGuide, parseRange, summary } from '../../tools/lib/reflection-parse.mjs';
+import { extractGuide, parseRange, summary, dateLineText } from '../../tools/lib/reflection-parse.mjs';
 import { parseArgs, baseUrl } from '../../tools/lib/cli.mjs';
 import { scrubLine } from '../../tools/deploy-worker.mjs';
 
 const html = readFileSync(new URL('../fixtures/guide-synthetic.html', import.meta.url), 'utf8');
+// Same synthetic guide in the layout the private hub publishes (p.meta spans instead of div.date).
+const published = readFileSync(new URL('../fixtures/guide-synthetic-published.html', import.meta.url), 'utf8');
 
 describe('reflection extractor (synthetic guide)', () => {
   it('extracts 7-day weeks from the start; the last week runs to the end date', () => {
@@ -39,6 +41,30 @@ describe('reflection extractor (synthetic guide)', () => {
     const noDate = html.replace(/<div class="date">.*?<\/div>/, '');
     expect(extractGuide(noDate).problems).toEqual(['date_range_unparsed']);
     expect(extractGuide(noDate, { start: '2026-10-21', end: '2026-11-25' }).problems).toEqual([]);
+  });
+
+  it('reads the published layout date line (p.meta spans) without flags', () => {
+    expect(dateLineText(published)).toBe('A lorem-style guide · October 21 – November 25, 2026 · drawn from Month 2, "Lorem"');
+    const { guide, problems } = extractGuide(published);
+    expect(problems).toEqual([]);
+    expect(guide.guide).toMatchObject({ start: '2026-10-21', end: '2026-11-25' });
+    expect(guide.weeks.map((w) => [w.n, w.start, w.end])).toEqual([
+      [1, '2026-10-21', '2026-10-27'],
+      [2, '2026-10-28', '2026-11-03'],
+      [3, '2026-11-04', '2026-11-10'],
+      [4, '2026-11-11', '2026-11-17'],
+      [5, '2026-11-18', '2026-11-25'],
+    ]);
+  });
+
+  it('reads the draft layout date line with a prefix and suffix', () => {
+    const draft = html.replace(/<div class="date">.*?<\/div>/, '<div class="date">A lorem-style guide · October 21 – November 25, 2026 · drawn from Month 2, "Lorem"</div>');
+    expect(extractGuide(draft).guide.guide).toMatchObject({ start: '2026-10-21', end: '2026-11-25' });
+  });
+
+  it('ignores dates outside the date line', () => {
+    const noDate = published.replace(/<p class="meta">.*?<\/p>/, '<h2>Praxis day · Thursday, October 22</h2>');
+    expect(extractGuide(noDate).problems).toEqual(['date_range_unparsed']);
   });
 
   it('parses common date-line shapes', () => {
