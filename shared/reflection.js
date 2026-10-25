@@ -85,3 +85,35 @@ export function reflectionFreshness(guides, today) {
   }
   return { weekly, monthly };
 }
+
+/** The guide in force on `ymd`: the one with the latest start <= ymd (guides may overlap). */
+export function pickGuide(guides, ymd) {
+  let best = null;
+  for (const g of guides || []) {
+    if (g && g.guide && g.guide.start <= ymd && (!best || g.guide.start > best.guide.start)) best = g;
+  }
+  return best;
+}
+
+export const HISTORY_GUIDES = 5;
+
+/**
+ * GET /api/reflection (PLAN-v2.md §8.1): the current guide plus up to 5 earlier ones. Only weeks that
+ * have started carry their practice; future weeks show the theme only (Q4). Guides that start after
+ * today aren't shown at all.
+ */
+export function reflectionView(guides, ymd) {
+  const current = pickGuide(guides, ymd);
+  const shape = (g) => ({
+    start: g.guide.start,
+    end: g.guide.end,
+    weeks: g.weeks.map((w) => (w.start <= ymd ? { n: w.n, start: w.start, end: w.end, theme: w.theme, practice: w.practice } : { n: w.n, start: w.start, end: w.end, theme: w.theme, future: true })),
+  });
+  const history = (guides || [])
+    .filter((g) => g && g.guide && current && g.guide.start < current.guide.start)
+    .sort((a, b) => (a.guide.start < b.guide.start ? 1 : -1))
+    .slice(0, HISTORY_GUIDES)
+    .map(shape);
+  const week = current ? currentWeek(current, ymd) : null;
+  return { today: ymd, current: current ? shape(current) : null, week: week ? week.n : null, history };
+}

@@ -6,8 +6,10 @@ import { checkHashedToken } from './auth/tokens.js';
 import { verifyAccess } from './auth/access.js';
 import { buildState } from './state.js';
 import { buildHealth } from './health.js';
-import { servePhoto } from './photos.js';
-import { publishReflection } from './reflection.js';
+import { servePhoto, setPhotoFlags } from './photos.js';
+import { publishReflection, loadGuides } from './reflection.js';
+import { reflectionView } from '../../shared/reflection.js';
+import { refreshTasks, syncTaskLists, listTaskLists, setTaskListSelection, cachedTasks, completeTask, tasksScope, MAX_LISTS } from './google/tasks.js';
 import { handleAdmin } from './admin.js';
 import { refreshWeather, searchPlaces, WEATHER_KEY } from './weather.js';
 import { refreshCalendar, calendarWindow, listCalendars, setSelection, syncCalendarList, cachedCalendar, MAX_SELECTED, MAX_WINDOW_DAYS } from './google/calendar.js';
@@ -52,7 +54,7 @@ export async function route(request, env, deps = {}) {
     if (rateLimited(device.id)) return empty(429);
     if (path === '/api/state' && method === 'GET') {
       await touchDevice(db, device.id, request.headers.get('x-frame-build'));
-      return json(await buildState(env, device));
+      return json(await buildState(env, device, deps.nowMs || Date.now()));
     }
     if (path === '/api/heartbeat' && method === 'POST') {
       const body = await readJson(request, 8192);
@@ -82,6 +84,14 @@ export async function route(request, env, deps = {}) {
 }
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return '';
+  }
+}
 const HOUR_MS = 3600000;
 
 /** v2 P1 device routes: Calendar, Weather and Settings screens (PLAN-v2.md §3, §5, §7). */
@@ -109,6 +119,16 @@ async function deviceApi(request, env, url, device, deps) {
   if (path === '/api/calendars' && method === 'GET') {
     return json({ calendars: await listCalendars(db), max: MAX_SELECTED });
   }
+  // P1b (PLAN-v2.md §4, §8): Tasks and Reflection screens, read-only from cache / D1.
+  if (path === '/api/tasks' && method === 'GET') {
+    return json(await cachedTasks(env, nowMs));
+  }
+  if (path === '/api/tasklists' && method === 'GET') {
+    return json({ lists: await listTaskLists(db), max: MAX_LISTS, scope: await tasksScope(db) });
+  }
+  if (path === '/api/reflection' && method === 'GET') {
+    return json(reflectionView(await loadGuides(env), ymdIn(nowMs, tz)));
+  }
   if (path === '/api/settings/weather/search' && method === 'GET') {
     if (await overWriteBudget(db, device.id, nowMs)) return error(429, 'too_many_writes');
     const r = await searchPlaces(url.searchParams.get('q'), { fetchImpl });
@@ -118,8 +138,17 @@ async function deviceApi(request, env, url, device, deps) {
   // Everything below writes, so it counts against the device's hourly budget.
   const writes = method === 'PUT' || method === 'POST';
   const settingMatch = /^\/api\/settings\/([a-z]{1,20})$/.exec(path);
+  const completeMatch = /^\/api\/tasks\/([^/]{1,128})\/([^/]{1,128})\/complete$/.exec(path);
+  const photoMatch = /^\/api\/photos\/([A-Za-z0-9_-]{4,40})\/(\d{1,4})$/.exec(path);
   const isWrite =
-    writes && (settingMatch || path === '/api/calendars/selection' || path === '/api/calendars/sync');
+    writes &&
+    (settingMatch ||
+      completeMatch ||
+      photoMatch ||
+      path === '/api/calendars/selection' ||
+      path === '/api/calendars/sync' ||
+      path === '/api/tasklists/selection' ||
+      path === '/api/tasklists/sync');
   if (!isWrite) return notFound();
   if (await overWriteBudget(db, device.id, nowMs)) return error(429, 'too_many_writes');
   const by = 'frame:' + device.id;
@@ -137,7 +166,7 @@ async function deviceApi(request, env, url, device, deps) {
   if (path === '/api/calendars/selection' && method === 'PUT') {
     const body = await readJson(request, 16384);
     if (body.error) return error(400, body.error);
-    const r = await setSelection(db, body.value && body.value.selected);
+    const r = await setSelection(db, body.value && body.value.selected, body.value && body.value.alertsOff);
     if (!r.ok) return error(400, r.error);
     const c = await refreshCalendar(env, { fetchImpl, nowMs });
     return json({ ok: true, selected: r.selected, refreshed: !!c.ok, calendars: await listCalendars(db) });
@@ -146,13 +175,55 @@ async function deviceApi(request, env, url, device, deps) {
     const r = await syncCalendarList(env, { fetchImpl, nowMs });
     return r.ok ? json({ calendars: await listCalendars(db), max: MAX_SELECTED }) : error(409, r.error);
   }
+  if (path === '/api/tasklists/sync' && method === 'POST') {
+    const r = await syncTaskLists(env, { fetchImpl, nowMs });
+    return r.ok ? json({ lists: await listTaskLists(db), max: MAX_LISTS }) : error(409, r.error);
+  }
+  if (path === '/api/tasklists/selection' && method === 'PUT') {
+    const body = await readJson(request, 8192);
+    if (body.error) return error(400, body.error);
+    const r = await setTaskListSelection(db, body.value && body.value.selected);
+    if (!r.ok) return error(400, r.error);
+    const t = await refreshTasks(env, { fetchImpl, nowMs, force: true });
+    return json({ ok: true, selected: r.selected, refreshed: !!t.ok, lists: await listTaskLists(db) });
+  }
+  if (completeMatch && method === 'POST') {
+    const text = await request.text();
+    if (text.length > 512) return error(400, 'too_large');
+    let body;
+    try {
+      body = text.trim() ? JSON.parse(text) : undefined;
+    } catch {
+      return error(400, 'bad_json');
+    }
+    const r = await completeTask(env, safeDecode(completeMatch[1]), safeDecode(completeMatch[2]), body, { fetchImpl, nowMs });
+    return r.ok ? json({ ok: true }) : error(r.status, r.error);
+  }
+  if (photoMatch && method === 'PUT') {
+    const body = await readJson(request, 512);
+    if (body.error) return error(400, body.error);
+    const r = await setPhotoFlags(db, photoMatch[1], Number(photoMatch[2]), body.value);
+    return r.ok ? json({ ok: true }) : error(r.status, r.error);
+  }
   return notFound();
 }
 
 export async function runCron(env, nowMs = Date.now(), fetchImpl = fetch) {
   await ensureSchema(env.FRAME_DB);
   const [w, c] = await Promise.all([refreshWeather(env, { fetchImpl, nowMs }), refreshCalendar(env, { fetchImpl, nowMs })]);
-  log('cron', { weather: w.skipped ? 'skip' : w.ok ? 'ok' : 'fail', calendar: c.ok ? 'ok' : c.reason || 'fail' });
+  // Tasks after calendar, so a token refresh happens once (both use the calendar grant). Subrequests:
+  // ≤ 1 token + 1 weather + 25 calendars + 10 task lists = 37 of the free plan's 50.
+  let t;
+  try {
+    t = await refreshTasks(env, { fetchImpl, nowMs });
+  } catch {
+    t = { ok: false, reason: 'error' };
+  }
+  log('cron', {
+    weather: w.skipped ? 'skip' : w.ok ? 'ok' : 'fail',
+    calendar: c.ok ? 'ok' : c.reason || 'fail',
+    tasks: t.skipped ? 'skip' : t.ok ? (t.changed ? 'ok' : 'same') : t.reason || 'fail',
+  });
 }
 
 export default {

@@ -41,12 +41,47 @@ export async function photoManifest(env, deviceId, nowMs = Date.now()) {
   const db = env.FRAME_DB;
   const set = await activeSet(db);
   if (!set) return { setId: null, items: [] };
-  const { results } = await db.prepare('SELECT n, orient, taken, blur FROM photos WHERE set_id = ? ORDER BY n').bind(set.set_id).all();
+  // P1b: hidden photos leave the manifest; favorites carry fav: true (PLAN-v2.md §6).
+  const { results } = await db.prepare('SELECT n, orient, taken, blur, favorite FROM photos WHERE set_id = ? AND hidden = 0 ORDER BY n').bind(set.set_id).all();
   const items = [];
   for (const r of results) {
-    items.push({ id: String(r.n), url: await signPhotoPath(env, set.set_id, r.n, deviceId, nowMs), blur: r.blur || '', orient: r.orient || 'l', taken: r.taken || '' });
+    const it = { id: String(r.n), url: await signPhotoPath(env, set.set_id, r.n, deviceId, nowMs), blur: r.blur || '', orient: r.orient || 'l', taken: r.taken || '' };
+    if (r.favorite) it.fav = true;
+    items.push(it);
   }
   return { setId: set.set_id, items, expiresAt: new Date(signedExpiry(nowMs) * 1000).toISOString() };
+}
+
+/**
+ * PUT /api/photos/:set/:n from the frame: {favorite: bool} and/or {hidden: bool}. Only photos in the
+ * active set. Returns {ok} or {ok:false, status, error}.
+ */
+export async function setPhotoFlags(db, setId, n, patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, status: 400, error: 'bad_value' };
+  const keys = Object.keys(patch);
+  if (!keys.length || keys.some((k) => (k !== 'favorite' && k !== 'hidden') || typeof patch[k] !== 'boolean')) return { ok: false, status: 400, error: 'bad_value' };
+  const set = await activeSet(db);
+  if (!set || set.set_id !== setId) return { ok: false, status: 409, error: 'set_changed' };
+  const sets = keys.map((k) => k + ' = ?').join(', ');
+  const r = await db.prepare('UPDATE photos SET ' + sets + ' WHERE set_id = ? AND n = ?').bind(...keys.map((k) => (patch[k] ? 1 : 0)), setId, n).run();
+  if (!r.meta || !r.meta.changes) return { ok: false, status: 404, error: 'unknown_photo' };
+  return { ok: true };
+}
+
+/** /admin: how many photos in the active set are hidden. */
+export async function hiddenCount(db) {
+  const set = await activeSet(db);
+  if (!set) return 0;
+  const r = await db.prepare('SELECT COUNT(*) AS n FROM photos WHERE set_id = ? AND hidden = 1').bind(set.set_id).first();
+  return r ? r.n : 0;
+}
+
+/** /admin "Unhide all". */
+export async function unhideAll(db) {
+  const set = await activeSet(db);
+  if (!set) return 0;
+  const r = await db.prepare('UPDATE photos SET hidden = 0 WHERE set_id = ? AND hidden = 1').bind(set.set_id).run();
+  return (r.meta && r.meta.changes) || 0;
 }
 
 /** GET /p/<set>/<n>.jpg */

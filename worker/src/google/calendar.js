@@ -30,7 +30,7 @@ export function eventsUrl(timeMin, timeMax, tz, calendarId = 'primary') {
 }
 
 /** Keeps what the frame shows and drops cancelled, declined, "free" and working-location events. */
-export function normalizeEvents(items, color = null) {
+export function normalizeEvents(items, color = null, noAlert = false) {
   const out = [];
   for (const ev of items || []) {
     if (!ev || ev.status === 'cancelled') continue;
@@ -44,6 +44,7 @@ export function normalizeEvents(items, color = null) {
     if (!start || !end) continue;
     const e = { title: String(ev.summary || 'Busy').slice(0, 80), start, end, allDay };
     if (color) e.color = color;
+    if (noAlert) e.na = true; // P1b: this calendar's alerts are off (PLAN-v2.md §9.1)
     out.push(e);
   }
   return out;
@@ -90,19 +91,38 @@ export function calendarPayload(events, nowMs, tz) {
     const s = startMs(e, tz);
     if (s >= afterTomorrow && (!ahead || s < startMs(ahead, tz))) ahead = e;
   }
+  // P1b alerts (§9): timed events starting in the next 24 h (or up to 5 min ago), for the frame's banners.
+  const soon = [];
+  for (const e of events) {
+    if (e.allDay) continue;
+    const s = Date.parse(e.start);
+    if (s >= nowMs - SOON_BEFORE_MS && s <= nowMs + SOON_AHEAD_MS && soon.length < SOON_MAX) {
+      const o = withColor({ title: e.title, start: new Date(s).toISOString() }, e);
+      if (e.na) o.na = true;
+      soon.push(o);
+    }
+  }
   return {
     today: t,
+    soon,
     tomorrowFirst: first ? withColor({ title: first.title, start: first.start }, first) : null,
     ahead: ahead ? withColor({ title: ahead.title, start: ahead.start, allDay: ahead.allDay }, ahead) : null,
   };
 }
 
+const SOON_BEFORE_MS = 5 * 60000;
+const SOON_AHEAD_MS = 24 * 3600000;
+const SOON_MAX = 30;
+
 export const CAL_KEY = 'calendar';
 
 /** The calendars to fetch: the selected ones, or the primary calendar when nothing is selected. */
 export async function selectedCalendars(db) {
-  const { results } = await db.prepare('SELECT id, color FROM calendars WHERE selected = 1 ORDER BY position LIMIT ?').bind(MAX_SELECTED).all();
-  return results.length ? results : [{ id: 'primary', color: null }];
+  const { results } = await db.prepare('SELECT id, color, alert FROM calendars WHERE selected = 1 ORDER BY position LIMIT ?').bind(MAX_SELECTED).all();
+  if (results.length) return results;
+  // Nothing picked yet: the primary calendar, with its stored alert flag if the list has been loaded.
+  const p = await db.prepare('SELECT alert FROM calendars WHERE is_primary = 1').first();
+  return [{ id: 'primary', color: null, alert: p ? p.alert : 1 }];
 }
 
 /**
@@ -126,7 +146,7 @@ export async function refreshCalendar(env, { fetchImpl = fetch, nowMs = Date.now
         const res = await fetchImpl(eventsUrl(timeMin, timeMax, tz, c.id), { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } });
         if (!res.ok) return { ok: false, code: 'calendar_http_' + res.status };
         const body = await res.json();
-        return { ok: true, events: normalizeEvents(body.items, c.color) };
+        return { ok: true, events: normalizeEvents(body.items, c.color, c.alert === 0) };
       } catch {
         return { ok: false, code: 'calendar_fetch' };
       }
@@ -197,21 +217,26 @@ export async function syncCalendarList(env, { fetchImpl = fetch, nowMs = Date.no
 }
 
 export async function listCalendars(db) {
-  const { results } = await db.prepare('SELECT id, summary, color, is_primary, selected FROM calendars ORDER BY position').all();
-  return results.map((r) => ({ id: r.id, summary: r.summary, color: r.color, primary: !!r.is_primary, selected: !!r.selected }));
+  const { results } = await db.prepare('SELECT id, summary, color, is_primary, selected, alert FROM calendars ORDER BY position').all();
+  return results.map((r) => ({ id: r.id, summary: r.summary, color: r.color, primary: !!r.is_primary, selected: !!r.selected, alert: r.alert !== 0 }));
 }
 
-/** Replaces the selection. Unknown ids are refused; more than MAX_SELECTED is refused. */
-export async function setSelection(db, ids) {
-  if (!Array.isArray(ids) || ids.some((x) => typeof x !== 'string')) return { ok: false, error: 'bad_selection' };
+/**
+ * Replaces the selection. Unknown ids are refused; more than MAX_SELECTED is refused. P1b: `alertsOff`
+ * (optional) is the list of calendars whose event alerts are off; when given it replaces the old list.
+ */
+export async function setSelection(db, ids, alertsOff) {
+  const bad = (a) => !Array.isArray(a) || a.length > 500 || a.some((x) => typeof x !== 'string');
+  if (bad(ids) || (alertsOff !== undefined && bad(alertsOff))) return { ok: false, error: 'bad_selection' };
   const uniq = [...new Set(ids)];
   if (uniq.length > MAX_SELECTED) return { ok: false, error: 'too_many_calendars' };
   const known = new Set((await db.prepare('SELECT id FROM calendars').all()).results.map((r) => r.id));
   if (uniq.some((id) => !known.has(id))) return { ok: false, error: 'unknown_calendar' };
-  await db.batch([
-    db.prepare('UPDATE calendars SET selected = 0'),
-    ...uniq.map((id) => db.prepare('UPDATE calendars SET selected = 1 WHERE id = ?').bind(id)),
-  ]);
+  const off = alertsOff === undefined ? null : [...new Set(alertsOff)];
+  if (off && off.some((id) => !known.has(id))) return { ok: false, error: 'unknown_calendar' };
+  const stmts = [db.prepare('UPDATE calendars SET selected = 0'), ...uniq.map((id) => db.prepare('UPDATE calendars SET selected = 1 WHERE id = ?').bind(id))];
+  if (off) stmts.push(db.prepare('UPDATE calendars SET alert = 1'), ...off.map((id) => db.prepare('UPDATE calendars SET alert = 0 WHERE id = ?').bind(id)));
+  await db.batch(stmts);
   return { ok: true, selected: uniq.length };
 }
 

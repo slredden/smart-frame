@@ -15,7 +15,7 @@ step below too.
    `calendar.calendarlist.readonly` if it's not there yet).
 3. /admin → Google → **Connect calendar** and approve. The Tasks tick box is optional: the calendar
    connects without it, and `/api/health` then shows only the soft `tasks_scope_missing`.
-   Picking task lists comes with P1b.
+   Picking task lists: see runbook-tasks.md.
 
 ## After the v1.1 deploy (once, superseded by the P1 step above)
 
@@ -45,6 +45,12 @@ step below too.
 - When nothing is left today and tomorrow has no timed event, Home's agenda shows the next event within
   30 days: `Nothing else today. Next: Tue, Nov 3, 9:00 AM · …`.
 - Each event carries its calendar's Google colour (`color`) in the payload, for the v2 Calendar screen.
+
+## Alerts per calendar (P1b)
+
+Each calendar has an alerts switch (default on): /admin → Calendars ("alerts" tick), or on the frame
+Calendar → Calendars → **Alerts on/off**. Off keeps the calendar on the frame without event banners.
+Stored as `calendars.alert`; events from a calendar with alerts off carry `na: true` in `/api/state`'s `soon` list, and the frame skips them.
 
 ## Schema
 

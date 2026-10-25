@@ -934,6 +934,7 @@ Breakdown inside P1 and P1b:
 | v1.2 | 2026-10-24 | §2.6 deletion list: one Home layout (photo left, info right), `scheduled(minutes, schedule)` → HOME/NIGHT at 6:00–22:00, idle and taps in `nav.js` (a tap at night wakes to Home), no A/B swap. Night dim clock and the "Nothing else today. Next: …" row kept |
 | F | 2026-10-24 | §8.5 freshness codes in `/api/health`, runbook-health codes. The §8.4 routine is Chief's |
 | P1 | 2026-10-24 | Menu rail (built screens only; unbuilt ones hidden by `features`), Home widget taps, 30 s rail peek, 10 min idle → Home/night. Calendar screen (Agenda default, Day, Week; Google colours; calendar picker on the frame), Weather screen (24 h, 10 days, no extra writes), Settings in D1 (schedule, night dim, idle, weather place by Open-Meteo geocoding, calendars; bounded, no lock-out, device-token writes capped at 60/h). Batched consent asks for `tasks`; missing it is the soft `tasks_scope_missing`. Calendar cache now starts at this week's Monday for the Week view |
+| P1b | 2026-10-24 | Tasks screen (Google Tasks, ≤ 10 lists picked on the frame or /admin, groups Overdue/Today/Upcoming/No date, check-off after a 10 s undo, guarded by the Worker: cached task in a shown list, `{status:"completed"}` only, 60 writes/h), Home "Due today" line, soft `tasks_lists_empty`/`tasks_stale`. Alerts computed on the frame: event banner per calendar (default 10 min), 9:00 tasks banner, chime 60 % with tap fallback, quiet = night, test chime in Settings › Alerts. Reflection screen (6 guides kept). Photos screen (toolbar, options in D1, favorites/hides in D1). Rail shows Tasks, Photos, Reflection; Controls hidden. Budgets: runbook-tasks.md |
 
 ## 14. Stephen's manual steps
 
@@ -951,7 +952,8 @@ Breakdown inside P1 and P1b:
    - Check that the soft keyboard opens in Settings › Weather location. If it doesn't, set the location
      on `/admin`.
    - Check that the rail's Settings button and the kiosk's Menu button don't interfere.
-5. **On the frame after P1b:** listen for the test chime.
+5. **On the frame after P1b:** pick task lists (Tasks → **Lists**, or /admin → Task lists), check
+   Settings › Alerts, and press **Play test chime**.
    - Set the Android media volume once on the device, or Chief does it over adb with Stephen's OK.
    - Say whether the chime is audible. If it isn't, alerts become banner-only.
 6. **Phase D, with v1 P6 (only with Stephen's OK, Q13):** approve the kiosk rebuild with the `FrameHW`

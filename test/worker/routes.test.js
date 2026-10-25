@@ -131,7 +131,7 @@ describe('health', () => {
     h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
     expect(h.frame.offline).toBe(false);
     expect(h.problems).not.toContain('frame_never_seen');
-    expect(Object.keys(h).sort()).toEqual(['alert', 'build', 'calendar', 'frame', 'grants', 'now', 'ok', 'photos', 'problems', 'reflection', 'weather']);
+    expect(Object.keys(h).sort()).toEqual(['alert', 'build', 'calendar', 'frame', 'grants', 'now', 'ok', 'photos', 'problems', 'reflection', 'tasks', 'weather']);
     expect(h.frame.build).toBe('b1');
   });
 
@@ -142,6 +142,7 @@ describe('health', () => {
     const h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
     expect(h.problems).toEqual(expect.arrayContaining(['reflection_no_current_week', 'reflection_weekly_stale', 'reflection_monthly_stale']));
     expect(h.reflection).toEqual({
+      guides: 0,
       currentWeek: null,
       weekly: { start: null, ageDays: null, stale: true },
       monthly: { start: null, end: null, ageDays: null, stale: true },
@@ -163,6 +164,7 @@ describe('health', () => {
       expect(h.problems).not.toContain('reflection_weekly_stale');
       expect(h.problems).not.toContain('reflection_monthly_stale');
       expect(h.reflection).toEqual({
+        guides: 1,
         currentWeek: 2,
         weekly: { start: '2026-10-25', ageDays: 1, stale: false },
         monthly: { start: '2026-10-18', end: '2026-11-14', ageDays: 8, stale: false },

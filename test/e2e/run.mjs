@@ -13,7 +13,7 @@ process.env.PUPPETEER_DISABLE_HEADLESS_WARNING = 'true';
 const DIST = resolve('frame/dist');
 const OUT = resolve('test/e2e/out');
 const CHROME = process.env.CHROME_106 || resolve('test/e2e/.browsers/chromium/linux-1036826/chrome-linux/chrome');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.wav': 'audio/wav' };
 
 if (!existsSync(join(DIST, 'index.html'))) throw new Error('Run `npm run build` first');
 if (!existsSync(CHROME)) throw new Error('Chromium 106 not found; see docs/runbooks/deploy.md');
@@ -43,11 +43,21 @@ const cases = [
   { name: 'night', screen: 'night', at: '2026-10-25T05:10:00Z', check: ['.night-clock'] },
   { name: 'morning-scheduled', screen: '', at: '2026-10-24T12:30:00Z', expectBody: 'screen-home' },
   { name: 'night-scheduled', screen: '', at: '2026-10-25T05:10:00Z', expectBody: 'screen-night' },
-  { name: 'home-rail', screen: '', extra: '&peek=1', at: AT, expectBody: 'rail-on', check: ['.nav-rail', '#home'], rail: 4, hits: true },
-  { name: 'calendar-agenda', screen: 'calendar', at: AT, check: ['.nav-rail', '.toolbar', '.ag-row'], rail: 4, hits: true },
-  { name: 'weather', screen: 'weather', at: AT, check: ['.nav-rail', '.wx-now', '.wx-hour', '.wx-day'], rail: 4, hits: true, count: { '.wx-hour': 24, '.wx-day': 10 } },
-  { name: 'settings', screen: 'settings', at: AT, check: ['.nav-rail', '.set-row'], rail: 4, hits: true, count: { '.set-row': 5 } },
+  { name: 'home-rail', screen: '', extra: '&peek=1', at: AT, expectBody: 'rail-on', check: ['.nav-rail', '#home'], rail: 7, hits: true },
+  { name: 'calendar-agenda', screen: 'calendar', at: AT, check: ['.nav-rail', '.toolbar', '.ag-row'], rail: 7, hits: true },
+  { name: 'weather', screen: 'weather', at: AT, check: ['.nav-rail', '.wx-now', '.wx-hour', '.wx-day'], rail: 7, hits: true, count: { '.wx-hour': 24, '.wx-day': 10 } },
+  { name: 'settings', screen: 'settings', at: AT, check: ['.nav-rail', '.set-row'], rail: 7, hits: true, count: { '.set-row': 8 } },
   { name: 'rail-all', screen: 'settings', extra: '&rail=all', at: AT, check: ['.nav-rail'], rail: 8, hits: true },
+  // P1b screens
+  { name: 'tasks', screen: 'tasks', at: AT, check: ['.nav-rail', '.task-tabs', '.task-row', '.task-check'], rail: 7, hits: true, count: { '.task-tab': 3, '.task-sec': 4, '.task-row.sub': 1 } },
+  { name: 'tasks-noscope', screen: 'tasks', extra: '&tasks=noscope', at: AT, check: ['.tasks-empty'], rail: 7, hits: true, count: { '.task-row': 0 } },
+  { name: 'reflection', screen: 'reflection', at: AT, check: ['.refl-big-theme', '.refl-full-practice', '.refl-week'], rail: 7, hits: true, count: { '.refl-week': 5, '.refl-week.future': 2, '.refl-guide-btn': 2 } },
+  { name: 'photos', screen: 'photos', at: AT, check: ['.stage', '.ph-bar'], rail: 7, hits: true, count: { '.ph-btn': 6 } },
+  // Alerts: 08:52 MDT is 8 min before the 9:00 Example meeting; 09:02 adds the 9:00 tasks alert.
+  { name: 'banner-home', screen: 'home', at: '2026-10-24T14:52:00Z', check: ['.alerts.open', '.alert'], hits: true, count: { '.alert': 1 } },
+  { name: 'banner-two', screen: 'calendar', at: '2026-10-24T15:02:00Z', check: ['.alerts.open'], hits: true, count: { '.alert': 2, '.alert-chip.tasks': 1 } },
+  { name: 'banner-photos', screen: 'photos', at: '2026-10-24T14:52:00Z', check: ['.alerts.open'], hits: true, count: { '.alert': 1 } },
+  { name: 'banner-night', screen: 'night', at: '2026-10-25T05:10:00Z', count: { '.alert': 0 } },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -60,6 +70,15 @@ async function open(c) {
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
   });
+  // Record chime plays; ?audio=blocked makes play() reject like a kiosk without autoplay.
+  await page.evaluateOnNewDocument((blocked) => {
+    window.__plays = [];
+    window.__blockAudio = blocked;
+    HTMLMediaElement.prototype.play = function () {
+      window.__plays.push({ muted: this.muted, volume: this.volume, blocked: window.__blockAudio });
+      return window.__blockAudio ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve();
+    };
+  }, !!c.blockAudio);
   const q = '?mock=1&at=' + encodeURIComponent(c.at) + (c.screen ? '&screen=' + c.screen : '') + (c.extra || '');
   await page.goto(base + '/' + q, { waitUntil: 'networkidle0' });
   await sleep(900); // first crossfade, first screen fetch
@@ -88,6 +107,9 @@ async function auditHits(page, name) {
         }
       }
       if (sheetOpen && !el.closest('#sheet') && !el.closest('#nav-rail')) return false;
+      // Covered by a banner or toast: not tappable here.
+      const top = document.elementFromPoint(Math.min(1279, Math.max(0, (b.left + b.right) / 2)), Math.min(799, Math.max(0, (b.top + b.bottom) / 2)));
+      if (top && !el.contains(top) && !top.contains(el)) return false;
       return true;
     });
     const label = (el) => (el.getAttribute('data-go') || el.getAttribute('data-rail') || el.getAttribute('data-act') || el.className) + ' "' + (el.textContent || '').trim().slice(0, 18) + '"';
@@ -221,9 +243,15 @@ for (const c of cases) {
   await tapSel(page, '[data-rail="home"]');
   await sleep(31000); // let the rail peek from the Home tap run out
   expectBody('peek ends', await bodyOf(page), 'screen-home', 'rail-on');
+  await page.touchscreen.tap(400, 300);
+  await sleep(550);
+  expectBody('photo tap', await bodyOf(page), 'rail-on');
+  await tapSel(page, '[data-rail="home"]');
   await tapSel(page, '[data-go="reflection"]');
-  expectBody('reflection widget', await bodyOf(page), 'screen-home');
-  expectBody('reflection widget', await bodyOf(page), 'rail-on');
+  expectBody('reflection widget', await bodyOf(page), 'screen-reflection');
+  await tapSel(page, '[data-rail="home"]');
+  const dueLine = await textOf(page, '[data-bind="tasksLine"]');
+  if (!/^Due today: /.test(dueLine)) failures.push('home: tasks line says "' + dueLine + '"');
   await page.touchscreen.tap(400, 300);
   await sleep(550);
   expectBody('photo tap', await bodyOf(page), 'rail-on');
@@ -255,9 +283,15 @@ for (const c of cases) {
   await tapSel(page, '[data-act="cal-cals"]');
   await page.screenshot({ path: join(OUT, 'sheet-calendars.png') });
   if ((await countOf(page, '.cal-pick')) !== 3) failures.push('calendars sheet: expected 3 calendars');
+  if ((await countOf(page, '.cal-bell')) !== 3) failures.push('calendars sheet: expected 3 alert toggles');
   await auditHits(page, 'sheet-calendars');
-  await tapSel(page, '.cal-pick:nth-child(3)');
+  await tapSel(page, '.cal-pick-row:nth-child(3) .cal-pick');
+  await tapSel(page, '.cal-pick-row:nth-child(2) .cal-bell');
+  if (!/off/.test(await textOf(page, '.cal-pick-row:nth-child(2) .cal-bell'))) failures.push('calendars sheet: bell did not toggle');
+  await page.screenshot({ path: join(OUT, 'sheet-calendars-bell.png') });
   await tapSel(page, '[data-act="sheet-done"]');
+  const sel = await page.evaluate(() => window.__sfMock.calls.filter((x) => x.m === 'saveSelection').pop());
+  if (!sel || sel.alertsOff.length !== 1) failures.push('calendars sheet: alertsOff not saved: ' + JSON.stringify(sel));
   if (await page.evaluate(() => !!document.querySelector('#sheet.open'))) failures.push('calendars sheet: Done did not close');
   console.log('calendar views'.padEnd(18), 'ok');
   if (page.errors.length) failures.push('calendar views: JS errors: ' + page.errors.join(' | '));
@@ -302,6 +336,152 @@ for (const c of cases) {
   await page.screenshot({ path: join(OUT, 'settings-after.png') });
   console.log('settings sheets'.padEnd(18), 'ok');
   if (page.errors.length) failures.push('settings: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
+const callsOf = (page, m) => page.evaluate((k) => window.__sfMock.calls.filter((x) => x.m === k), m);
+const plays = (page) => page.evaluate(() => window.__plays.slice());
+
+// Tasks: tabs filter, check-off strikes at once, Undo sends nothing, the 10 s toast end sends one write.
+{
+  const page = await open({ screen: 'tasks', at: AT });
+  const all = await countOf(page, '.task-row');
+  await tapSel(page, '.task-tab:nth-child(3)');
+  const second = await countOf(page, '.task-row');
+  if (!(second > 0 && second < all)) failures.push('tasks tab: ' + second + ' rows of ' + all);
+  await tapSel(page, '.task-tab:nth-child(1)');
+  await tapSel(page, '.task-row .task-check');
+  if ((await countOf(page, '.task-row.done')) !== 1) failures.push('tasks: check did not strike the row');
+  if (!(await page.evaluate(() => !!document.querySelector('#toast.open .toast-btn')))) failures.push('tasks: no Undo toast');
+  await page.screenshot({ path: join(OUT, 'tasks-undo-toast.png') });
+  await auditHits(page, 'tasks-undo-toast');
+  await tapSel(page, '#toast .toast-btn');
+  if ((await countOf(page, '.task-row.done')) !== 0) failures.push('tasks: Undo did not restore the row');
+  await sleep(1000);
+  if ((await callsOf(page, 'completeTask')).length) failures.push('tasks: Undo still sent a write');
+  await tapSel(page, '.task-row .task-check');
+  await sleep(10600);
+  const done = await callsOf(page, 'completeTask');
+  if (done.length !== 1) failures.push('tasks: expected 1 completeTask after the toast, got ' + done.length);
+  if ((await countOf(page, '.task-row')) !== all - 1) failures.push('tasks: completed row still listed');
+  await tapSel(page, '[data-act="task-lists"]');
+  await page.screenshot({ path: join(OUT, 'sheet-tasklists.png') });
+  if ((await countOf(page, '#sheet .cal-pick')) !== 3) failures.push('task lists sheet: expected 3 lists');
+  await auditHits(page, 'sheet-tasklists');
+  await tapSel(page, '#sheet .cal-pick:nth-child(3)');
+  await tapSel(page, '[data-act="sheet-done"]');
+  const saved = await callsOf(page, 'saveTaskLists');
+  if (saved.length !== 1 || saved[0].ids.length !== 3) failures.push('task lists: save ' + JSON.stringify(saved));
+  console.log('tasks flow'.padEnd(18), all + ' rows ok');
+  if (page.errors.length) failures.push('tasks flow: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
+// Photos: toolbar shows on open and hides after 5 s; a blank tap brings it back; next, pause, favorite, hide + undo.
+{
+  const page = await open({ screen: 'photos', at: AT });
+  const first = await page.evaluate(() => Array.prototype.some.call(document.querySelectorAll('#stage .layer img'), (i) => !!i.getAttribute('src')));
+  await tapSel(page, '[data-act="ph-next"]');
+  await sleep(800);
+  await tapSel(page, '[data-act="ph-pause"]');
+  if ((await textOf(page, '[data-act="ph-pause"]')) !== 'Play') failures.push('photos: Pause did not switch to Play');
+  if (!/Paused/.test(await textOf(page, '.ph-note'))) failures.push('photos: no Paused note');
+  await tapSel(page, '[data-act="ph-fav"]');
+  const favs = await callsOf(page, 'photoFlag');
+  if (favs.length !== 1 || !('favorite' in favs[0].patch)) failures.push('photos: favorite not saved ' + JSON.stringify(favs));
+  await page.screenshot({ path: join(OUT, 'photos-toolbar.png') });
+  await tapSel(page, '[data-act="ph-hide"]');
+  await page.screenshot({ path: join(OUT, 'photos-hide-toast.png') });
+  await auditHits(page, 'photos-hide-toast');
+  await tapSel(page, '#toast .toast-btn');
+  await sleep(5500);
+  if ((await callsOf(page, 'photoFlag')).length !== 1) failures.push('photos: Undo still sent the hide');
+  if (await page.evaluate(() => document.querySelector('#view-photos').classList.contains('bar-on'))) failures.push('photos: toolbar did not hide after 5 s');
+  await page.touchscreen.tap(700, 400);
+  await sleep(550);
+  if (!(await page.evaluate(() => document.querySelector('#view-photos').classList.contains('bar-on')))) failures.push('photos: blank tap did not show the toolbar');
+  await tapSel(page, '[data-act="ph-options"]');
+  await page.screenshot({ path: join(OUT, 'sheet-photo-options.png') });
+  await auditHits(page, 'sheet-photo-options');
+  await tapSel(page, '[data-f="fit"][data-v="fill"]');
+  await tapSel(page, '[data-act="sheet-done"]');
+  if (!(await page.evaluate(() => document.getElementById('stage').classList.contains('fill')))) failures.push('photos: Fill not applied');
+  console.log('photos flow'.padEnd(18), first ? 'ok' : 'no photo');
+  if (page.errors.length) failures.push('photos flow: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
+// Reflection: a past week opens its practice; a guide opens its weeks.
+{
+  const page = await open({ screen: 'reflection', at: AT });
+  await tapSel(page, '.refl-week:not(.future):not(.current)');
+  if (!(await page.evaluate(() => !!document.querySelector('#sheet.open .refl-full-practice')))) failures.push('reflection: past week did not open');
+  await page.screenshot({ path: join(OUT, 'reflection-week.png') });
+  await tapSel(page, '[data-act="sheet-done"]');
+  await tapSel(page, '.refl-guide-btn');
+  if ((await countOf(page, '#sheet.open .refl-week')) !== 5) failures.push('reflection: guide sheet should list 5 weeks');
+  await page.screenshot({ path: join(OUT, 'reflection-guide.png') });
+  await auditHits(page, 'reflection-guide');
+  console.log('reflection flow'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('reflection flow: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
+// Alerts: the banner chimes once, Dismiss keeps it gone, Open goes to Calendar; Settings › Alerts test chime.
+{
+  const page = await open({ screen: 'home', at: '2026-10-24T14:52:00Z' });
+  const p1 = await plays(page);
+  if (p1.filter((x) => !x.muted).length !== 1) failures.push('alerts: expected one chime, got ' + JSON.stringify(p1));
+  if (p1[0] && Math.abs(p1[0].volume - 0.6) > 0.01) failures.push('alerts: chime volume ' + p1[0].volume);
+  await sleep(2500);
+  if ((await plays(page)).length !== 1) failures.push('alerts: chimed again');
+  await tapSel(page, '[data-act="alert-dismiss"]');
+  if ((await countOf(page, '.alert')) !== 0) failures.push('alerts: Dismiss did not hide the banner');
+  expectBody('dismiss', await bodyOf(page), 'screen-home', 'rail-on');
+  await page.close();
+}
+{
+  // No ?screen= here: a forced screen pins Home, and Open has to navigate.
+  const page = await open({ at: '2026-10-24T14:52:00Z' });
+  expectBody('alert open start', await bodyOf(page), 'screen-home');
+  await tapSel(page, '[data-act="alert-open"]');
+  expectBody('alert open', await bodyOf(page), 'screen-calendar');
+  if ((await countOf(page, '.alert')) !== 0) failures.push('alerts: Open did not dismiss');
+  await page.close();
+}
+{
+  // Blocked autoplay: the chime is kept and plays on the next tap.
+  const page = await open({ screen: 'home', at: '2026-10-24T14:52:00Z', blockAudio: true });
+  const before = await plays(page);
+  await page.evaluate(() => (window.__blockAudio = false));
+  await page.touchscreen.tap(400, 300);
+  await sleep(550);
+  const after = await plays(page);
+  if (!(before.length === 1 && before[0].blocked && after.length === 2 && !after[1].muted)) failures.push('alerts: blocked chime not replayed on tap ' + JSON.stringify(after));
+  console.log('alerts flow'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('alerts flow: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+{
+  const page = await open({ screen: 'settings', at: AT });
+  await tapSel(page, '[data-act="set-alerts"]');
+  await page.screenshot({ path: join(OUT, 'sheet-alerts.png') });
+  await auditHits(page, 'sheet-alerts');
+  await tapSel(page, '[data-act="test-chime"]');
+  const tp = await plays(page);
+  if (tp.length !== 1 || Math.abs(tp[0].volume - 0.6) > 0.01) failures.push('settings: test chime ' + JSON.stringify(tp));
+  for (let i = 0; i < 3; i++) await tapSel(page, '[data-f="leadMin"][data-dir="-1"]');
+  await tapSel(page, '[data-act="sheet-done"]');
+  const row = await textOf(page, '[data-act="set-alerts"] .set-value');
+  if (row !== 'Tasks only · chime 60%') failures.push('settings alerts row says "' + row + '"');
+  await tapSel(page, '[data-act="set-tasks-home"]');
+  if ((await textOf(page, '[data-act="set-tasks-home"] .set-value')) !== 'Off') failures.push('settings: Tasks on Home did not toggle');
+  await tapSel(page, '[data-act="set-tasklists"]');
+  if ((await countOf(page, '#sheet .cal-pick')) !== 3) failures.push('settings: task lists sheet');
+  await tapSel(page, '[data-act="sheet-cancel"]');
+  await page.screenshot({ path: join(OUT, 'settings-p1b.png') });
+  console.log('alert settings'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('alert settings: JS errors: ' + page.errors.join(' | '));
   await page.close();
 }
 

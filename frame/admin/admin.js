@@ -130,6 +130,16 @@ function renderCalendars(r) {
     label.appendChild(sw);
     label.appendChild(document.createTextNode(c.summary + (c.primary ? ' (primary)' : '')));
     li.appendChild(label);
+    const al = document.createElement('label');
+    al.className = 'cal-alert';
+    const abox = document.createElement('input');
+    abox.type = 'checkbox';
+    abox.value = c.id;
+    abox.checked = c.alert !== false;
+    abox.setAttribute('data-alert', '1');
+    al.appendChild(abox);
+    al.appendChild(document.createTextNode(' alerts'));
+    li.appendChild(al);
     ul.appendChild(li);
   }
   if (!(r.calendars || []).length) $('cal-out').textContent = 'No calendars loaded yet.';
@@ -155,12 +165,88 @@ $('cal-sync').addEventListener('click', async () => {
 
 $('cal-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
-  const selected = Array.prototype.map.call(document.querySelectorAll('#cal-list input:checked'), (b) => b.value);
+  const selected = Array.prototype.map.call(document.querySelectorAll('#cal-list input:not([data-alert]):checked'), (b) => b.value);
+  const alertsOff = Array.prototype.map.call(document.querySelectorAll('#cal-list input[data-alert]:not(:checked)'), (b) => b.value);
   try {
-    const r = await api('PUT', 'calendars', { selected });
+    const r = await api('PUT', 'calendars', { selected, alertsOff });
     $('cal-out').textContent = 'Saved ' + r.selected + ' calendar(s).' + (r.refreshed ? ' The frame updates within a minute.' : ' The frame updates at the next refresh.');
   } catch (e) {
     $('cal-out').textContent = CAL_ERRORS[e.message] || 'Failed: ' + e.message;
+  }
+});
+
+// ----- Task lists (PLAN-v2.md §4.2) -----
+const TL_ERRORS = {
+  tasks_scope_missing: 'Click Connect calendar first and allow Google Tasks.',
+  reconnect_calendar: 'Click Connect calendar again (the Google grant needs refreshing).',
+  no_task_lists: 'Google returned no task lists for this account. Is Google Tasks enabled for it?',
+  too_many_lists: 'Too many lists selected (10 at most).',
+};
+
+function renderTaskLists(r) {
+  $('tl-max').textContent = String(r.max);
+  const ul = $('tl-list');
+  ul.textContent = '';
+  for (const l of r.lists || []) {
+    const li = document.createElement('li');
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = l.id;
+    box.checked = l.selected;
+    label.appendChild(box);
+    label.appendChild(document.createTextNode(' ' + l.title + (l.default ? ' (default)' : '')));
+    li.appendChild(label);
+    ul.appendChild(li);
+  }
+  if (!(r.lists || []).length) $('tl-out').textContent = r.scope === false ? TL_ERRORS.tasks_scope_missing : 'No task lists loaded yet.';
+}
+
+async function loadTaskLists() {
+  try {
+    renderTaskLists(await api('GET', 'tasklists'));
+  } catch (e) {
+    $('tl-out').textContent = 'Failed: ' + e.message;
+  }
+}
+
+$('tl-sync').addEventListener('click', async () => {
+  $('tl-out').textContent = 'Loading…';
+  try {
+    renderTaskLists(await api('POST', 'tasklists/sync'));
+    $('tl-out').textContent = 'Loaded.';
+  } catch (e) {
+    $('tl-out').textContent = TL_ERRORS[e.message] || 'Failed: ' + e.message;
+  }
+});
+
+$('tl-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const selected = Array.prototype.map.call(document.querySelectorAll('#tl-list input:checked'), (b) => b.value);
+  try {
+    const r = await api('PUT', 'tasklists', { selected });
+    $('tl-out').textContent = 'Saved ' + r.selected + ' list(s).' + (r.refreshed ? ' The frame updates within a minute.' : ' The frame updates at the next refresh.');
+  } catch (e) {
+    $('tl-out').textContent = TL_ERRORS[e.message] || 'Failed: ' + e.message;
+  }
+});
+
+// ----- Photos hidden on the frame -----
+async function loadPhotos() {
+  try {
+    $('ph-hidden').textContent = String((await api('GET', 'photos')).hidden);
+  } catch (e) {
+    $('ph-out').textContent = 'Failed: ' + e.message;
+  }
+}
+
+$('ph-unhide').addEventListener('click', async () => {
+  try {
+    const r = await api('POST', 'photos/unhide-all');
+    $('ph-out').textContent = r.unhidden + ' photo(s) back in the slideshow.';
+    loadPhotos();
+  } catch (e) {
+    $('ph-out').textContent = 'Failed: ' + e.message;
   }
 });
 
@@ -175,6 +261,12 @@ const SETTING_TEXT = {
   idle: (v) => 'Back to Home after ' + v.minutes + ' min',
   weather: (v) => v.name + ' (' + v.lat + ', ' + v.lon + ')',
   calendar: (v) => 'Calendar opens in ' + v.view + ' view',
+  photos: (v) => 'Every ' + v.intervalSec + ' s, ' + v.order + ', ' + v.fit + (v.captions ? ', captions' : '') + (v.favoritesOnly ? ', favorites only' : ''),
+  tasks: (v) => (v.onHome ? 'Due today shown on Home' : 'Not on Home'),
+  alerts: (v) =>
+    'Events ' + v.leadMin + ' min before' + ', chime ' + (v.chime ? 'on at ' + v.volume + '%' : 'off') +
+    ', tasks ' + (v.tasks ? 'at ' + fmtMin(v.tasksAt) : 'off') +
+    ', quiet ' + (v.quiet === 'night' ? 'at night' : fmtMin(v.quiet.start) + ' to ' + fmtMin(v.quiet.end)),
 };
 
 async function loadSettings() {
@@ -242,4 +334,6 @@ if (oauth) $('grant-out').textContent = oauth === 'ok' ? 'Google connected.' : '
 
 loadStatus();
 loadCalendars();
+loadTaskLists();
+loadPhotos();
 loadSettings();

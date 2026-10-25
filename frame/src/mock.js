@@ -4,6 +4,7 @@ import { ymdIn, addDays, startOfDayUtc, minutesOfDay } from '../../shared/time.j
 import { describeWeather } from '../../shared/weather-codes.js';
 import { DEFAULTS, validateSetting } from '../../shared/settings.js';
 import { weekStart } from './calendar-layout.js';
+import { reflectionView } from '../../shared/reflection.js';
 
 const at = (ymd, tz, h, m) => new Date(startOfDayUtc(ymd, tz) + (h * 60 + m) * 60000).toISOString();
 
@@ -12,6 +13,75 @@ const blur = (c) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http
 
 // Mock settings live in memory so the Settings sheets can be exercised end to end.
 let mockSettings = JSON.parse(JSON.stringify(DEFAULTS));
+
+/** Mock switches set by main.js from the URL (?tasks=noscope) and a log of writes for the e2e test. */
+export const mockConfig = { tasksScope: true, calls: [] };
+
+const LISTS = [
+  { id: 'l1', title: 'Example list', selected: true, default: true },
+  { id: 'l2', title: 'Example errands', selected: true, default: false },
+  { id: 'l3', title: 'Example someday', selected: false, default: false },
+];
+const done = {}; // 'list/task' marked complete in this session
+const flags = {}; // photo id -> {favorite, hidden}
+flags['3'] = { favorite: true, hidden: false };
+
+/** Made-up tasks relative to today: overdue, today (with a subtask), upcoming, no date. */
+export function mockTasks(nowMs, tz) {
+  const today = ymdIn(nowMs, tz);
+  const d = (n) => addDays(today, n);
+  const all = [
+    { id: 't1', list: 'l1', title: 'Example overdue task', due: d(-2), pos: '001' },
+    { id: 't2', list: 'l1', title: 'Example task due today', due: today, pos: '002' },
+    { id: 't3', list: 'l1', title: 'Example subtask', due: today, pos: '000', parent: 't2' },
+    { id: 't4', list: 'l2', title: 'Example errand today', due: today, pos: '001' },
+    { id: 't5', list: 'l2', title: 'Example errand in two days', due: d(2), pos: '002' },
+    { id: 't6', list: 'l1', title: 'Example task next month', due: d(12), pos: '003' },
+    { id: 't7', list: 'l1', title: 'Example task with no date', due: null, pos: '004' },
+    { id: 't8', list: 'l2', title: 'Example errand with no date', due: null, pos: '003' },
+  ];
+  const shown = {};
+  for (const l of LISTS) if (l.selected) shown[l.id] = true;
+  return all.filter((t) => shown[t.list] && !done[t.list + '/' + t.id]);
+}
+
+function mockTasksSummary(nowMs, tz) {
+  if (!mockConfig.tasksScope) return { scope: false, dueToday: [], dueCount: 0, overdue: 0, fetchedAt: null };
+  const today = ymdIn(nowMs, tz);
+  const t = mockTasks(nowMs, tz);
+  const due = t.filter((x) => x.due === today);
+  return { scope: true, dueToday: due.slice(0, 5).map((x) => x.title), dueCount: due.length, overdue: t.filter((x) => x.due && x.due < today).length, fetchedAt: new Date(nowMs - 120000).toISOString() };
+}
+
+/** Timed events in the next 24 h (the Worker's `soon` list); `na` when the calendar's alerts are off. */
+function mockSoon(nowMs, tz) {
+  const byColor = {};
+  for (const c of CALS) byColor[c.color] = c;
+  return mockEvents(nowMs, tz)
+    .filter((e) => !e.allDay && Date.parse(e.end) > nowMs && Date.parse(e.start) < nowMs + 86400000)
+    .filter((e) => byColor[e.color] && byColor[e.color].selected)
+    .map((e) => {
+      const o = { title: e.title, start: e.start, end: e.end, color: e.color };
+      if (byColor[e.color].alert === false) o.na = true;
+      return o;
+    });
+}
+
+/** Made-up guides: the current one (started two weeks before this week) and two earlier ones. */
+function mockGuides(nowMs, tz) {
+  const ws = weekStart(ymdIn(nowMs, tz));
+  const guide = (start, label) => ({
+    guide: { start, end: addDays(start, 34) },
+    weeks: [1, 2, 3, 4, 5].map((n) => ({
+      n,
+      start: addDays(start, (n - 1) * 7),
+      end: addDays(start, n * 7 - 1),
+      theme: 'Example theme ' + label + n,
+      practice: 'Example practice for week ' + n + '. A few made-up sentences so the screen can show a longer practice, wrapped across lines the way a real one would be.',
+    })),
+  });
+  return [guide(addDays(ws, -14), ''), guide(addDays(ws, -49), 'B'), guide(addDays(ws, -84), 'C')];
+}
 
 export function mockState(nowMs, tz, base = '') {
   const today = ymdIn(nowMs, tz);
@@ -22,8 +92,8 @@ export function mockState(nowMs, tz, base = '') {
   return {
     build: 'dev',
     serverTime: new Date(nowMs).toISOString(),
-    config: { idleMinutes: mockSettings.idle.minutes, photoIntervalSec: 60, timeZone: tz },
-    features: { calendar: true, tasks: false, weather: true, photos: false, reflection: false, controls: false },
+    config: { idleMinutes: mockSettings.idle.minutes, photoIntervalSec: mockSettings.photos.intervalSec, timeZone: tz },
+    features: { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: false },
     settings: JSON.parse(JSON.stringify(mockSettings)),
     weather: {
       fetchedAt,
@@ -50,7 +120,9 @@ export function mockState(nowMs, tz, base = '') {
         ],
       },
       tomorrowFirst: { title: 'Example appointment', start: at(tomorrow, tz, 8, 30) },
+      soon: mockSoon(nowMs, tz),
     },
+    tasks: mockTasksSummary(nowMs, tz),
     reflection: { n: 1, theme: 'Example theme for the week', practice: 'An example practice line, short enough to read from across the room.' },
     photos: {
       setId: 'mock',
@@ -61,15 +133,17 @@ export function mockState(nowMs, tz, base = '') {
         { id: '4', url: base + 'mock/4.svg', blur: blur('#b58a3a'), orient: 'p', taken: '' },
         { id: '5', url: base + 'mock/5.svg', blur: blur('#3f8784'), orient: 'l', taken: '2023-03' },
         { id: '6', url: base + 'mock/6.svg', blur: blur('#808080'), orient: 'l', taken: '2010-07' },
-      ],
+      ]
+        .filter((it) => !(flags[it.id] && flags[it.id].hidden))
+        .map((it) => (flags[it.id] && flags[it.id].favorite ? Object.assign(it, { fav: true }) : it)),
     },
   };
 }
 
 const CALS = [
-  { id: 'c1', summary: 'Example personal', color: '#4285f4', primary: true, selected: true },
-  { id: 'c2', summary: 'Example family', color: '#33b679', primary: false, selected: true },
-  { id: 'c3', summary: 'Example holidays', color: '#f6bf26', primary: false, selected: false },
+  { id: 'c1', summary: 'Example personal', color: '#4285f4', primary: true, selected: true, alert: true },
+  { id: 'c2', summary: 'Example family', color: '#33b679', primary: false, selected: true, alert: true },
+  { id: 'c3', summary: 'Example holidays', color: '#f6bf26', primary: false, selected: false, alert: true },
 ];
 
 /** Made-up events from a week ago to 3 weeks out, with overlaps for the Day/Week layout. */
@@ -148,8 +222,12 @@ export function createMockClient(now, tz) {
     weather: () => ok({ weather: mockWeather(now(), tz) }),
     calendars: () => ok({ calendars: CALS.map((c) => Object.assign({}, c)), max: 10 }),
     syncCalendars: () => ok({ calendars: CALS.map((c) => Object.assign({}, c)), max: 10 }),
-    saveSelection: (ids) => {
-      for (const c of CALS) c.selected = ids.indexOf(c.id) >= 0;
+    saveSelection: (ids, alertsOff) => {
+      mockConfig.calls.push({ m: 'saveSelection', ids, alertsOff: alertsOff || [] });
+      for (const c of CALS) {
+        c.selected = ids.indexOf(c.id) >= 0;
+        c.alert = !(alertsOff && alertsOff.indexOf(c.id) >= 0);
+      }
       return ok({ ok: true, selected: ids.length, refreshed: true, calendars: CALS.map((c) => Object.assign({}, c)) });
     },
     saveSetting: (key, patch) => {
@@ -159,5 +237,31 @@ export function createMockClient(now, tz) {
       return ok({ ok: true, settings: JSON.parse(JSON.stringify(mockSettings)) });
     },
     searchPlaces: (q) => ok({ places: PLACES.filter((p) => p.name.toLowerCase().indexOf(q.toLowerCase()) === 0) }),
+    tasks: () =>
+      ok(
+        mockConfig.tasksScope
+          ? { scope: true, lists: LISTS.filter((l) => l.selected).map((l) => ({ id: l.id, title: l.title })), tasks: mockTasks(now(), tz), fetchedAt: new Date(now() - 120000).toISOString(), stale: false }
+          : { scope: false, lists: [], tasks: [], fetchedAt: null, stale: false },
+      ),
+    tasklists: () => ok({ lists: mockConfig.tasksScope ? LISTS.map((l) => Object.assign({}, l)) : [], max: 10, scope: mockConfig.tasksScope }),
+    syncTaskLists: () => (mockConfig.tasksScope ? ok({ lists: LISTS.map((l) => Object.assign({}, l)), max: 10 }) : Promise.resolve({ status: 409, data: { error: 'tasks_scope_missing' } })),
+    saveTaskLists: (ids) => {
+      mockConfig.calls.push({ m: 'saveTaskLists', ids });
+      if (ids.length > 10) return Promise.resolve({ status: 400, data: { error: 'too_many_lists' } });
+      for (const l of LISTS) l.selected = ids.indexOf(l.id) >= 0;
+      return ok({ ok: true, selected: ids.length, refreshed: true, lists: LISTS.map((l) => Object.assign({}, l)) });
+    },
+    completeTask: (list, task) => {
+      mockConfig.calls.push({ m: 'completeTask', list, task });
+      done[list + '/' + task] = true;
+      return ok({ ok: true });
+    },
+    reflection: () => ok(reflectionView(mockGuides(now(), tz), ymdIn(now(), tz))),
+    photoFlag: (setId, n, patch) => {
+      mockConfig.calls.push({ m: 'photoFlag', setId, n: String(n), patch });
+      const f = flags[String(n)] || (flags[String(n)] = { favorite: false, hidden: false });
+      Object.assign(f, patch);
+      return ok({ ok: true });
+    },
   };
 }

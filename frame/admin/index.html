@@ -36,11 +36,23 @@
   <section>
     <h2>Calendars</h2>
     <p>Choose which calendars on the Workspace account the frame shows (up to <span id="cal-max">25</span>).
-      Nothing selected means the primary calendar only.</p>
+      Nothing selected means the primary calendar only. Untick "alerts" to keep a calendar on the frame
+      without event banners.</p>
     <p><button id="cal-sync" type="button">Load calendars from Google</button> <span id="cal-out"></span></p>
     <form id="cal-form">
       <ul id="cal-list" class="cal-list"></ul>
       <button type="submit">Save selection</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Task lists</h2>
+    <p>Choose which Google Tasks lists the frame shows (up to <span id="tl-max">10</span>).
+      Nothing selected means the default list. Needs Connect calendar with the Tasks permission.</p>
+    <p><button id="tl-sync" type="button">Load task lists from Google</button> <span id="tl-out"></span></p>
+    <form id="tl-form">
+      <ul id="tl-list" class="cal-list"></ul>
+      <button type="submit">Save task lists</button>
     </form>
   </section>
 
@@ -61,6 +73,8 @@
     <p>Starts a Google Photos picker session. Pick up to 300 photos from the album, then come back here.</p>
     <button id="pick" type="button">Pick new photos</button>
     <p id="pick-status"></p>
+    <p>Hidden on the frame: <span id="ph-hidden">0</span> photo(s).
+      <button id="ph-unhide" type="button">Unhide all</button> <span id="ph-out"></span></p>
   </section>
 
   <section>

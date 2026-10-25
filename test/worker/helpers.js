@@ -12,7 +12,7 @@ export function testEnv(extra = {}) {
   return Object.assign({}, baseEnv, { ASSETS: assets, BUILD_ID: 'test-build' }, extra);
 }
 
-const TABLES = ['devices', 'grants', 'cache', 'reflection', 'photo_sets', 'photos', 'picker_jobs', 'oauth_state', 'meta', 'kv_writes', 'calendars', 'settings'];
+const TABLES = ['devices', 'grants', 'cache', 'reflection', 'photo_sets', 'photos', 'picker_jobs', 'oauth_state', 'meta', 'kv_writes', 'calendars', 'settings', 'tasklists', 'reflection_guides'];
 
 /** Fresh tables per test (local test D1 only) plus one paired device. */
 export async function setup(env) {

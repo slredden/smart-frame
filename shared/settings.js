@@ -1,8 +1,8 @@
 // Frame settings (PLAN-v2.md §7.2): defaults, bounds and one pure validator, shared by the Worker
 // (which enforces it) and the frame UI (so steppers can't go out of bounds).
-// P1 keys only. P1b adds photos, tasks and alerts; phase D adds brightness.
+// P1 keys plus P1b's photos, tasks and alerts (§4, §6, §9). Phase D adds brightness.
 
-export const SETTING_KEYS = ['schedule', 'night', 'idle', 'weather', 'calendar'];
+export const SETTING_KEYS = ['schedule', 'night', 'idle', 'weather', 'calendar', 'photos', 'tasks', 'alerts'];
 
 export const DEFAULT_WEATHER = { name: 'Denver', lat: 39.74, lon: -104.99, timeZone: 'America/Denver' };
 
@@ -12,6 +12,10 @@ export const DEFAULTS = {
   idle: { minutes: 10 },
   weather: DEFAULT_WEATHER,
   calendar: { view: 'agenda' },
+  photos: { intervalSec: 60, order: 'shuffle', captions: true, fit: 'fit', favoritesOnly: false },
+  tasks: { onHome: true },
+  // Q12 defaults: 10 min lead, chime on at 60%, quiet during the night window, tasks at 9:00 AM.
+  alerts: { leadMin: 10, chime: true, volume: 60, quiet: 'night', tasksAt: 540, tasks: true },
 };
 
 export const BOUNDS = {
@@ -20,6 +24,8 @@ export const BOUNDS = {
   idle: { minutes: [1, 60] },
   weather: { nameMax: 80 },
   calendar: { views: ['agenda', 'day', 'week'] },
+  photos: { intervals: [15, 30, 60, 120, 300], orders: ['shuffle', 'picked'], fits: ['fit', 'fill'] },
+  alerts: { leads: [0, 5, 10, 15, 30, 60], volume: [20, 100], volumeStep: 10, tasksAt: [360, 720], step: 15 },
 };
 
 const FIELDS = {
@@ -28,12 +34,17 @@ const FIELDS = {
   idle: ['minutes'],
   weather: ['name', 'lat', 'lon', 'timeZone'],
   calendar: ['view'],
+  photos: ['intervalSec', 'order', 'captions', 'fit', 'favoritesOnly'],
+  tasks: ['onHome'],
+  alerts: ['leadMin', 'chime', 'volume', 'quiet', 'tasksAt', 'tasks'],
 };
 
 const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
 const inRange = (v, [lo, hi]) => isInt(v) && v >= lo && v <= hi;
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const round2 = (v) => Math.round(v * 100) / 100;
+const isBool = (v) => typeof v === 'boolean';
+const quarter = (v) => inRange(v, [0, 1439]) && v % 15 === 0;
 
 /**
  * Validates a partial update for `key` and merges it over `current` (so a missing field can't reset
@@ -68,6 +79,23 @@ export function validateSetting(key, patch, current) {
     v.lon = round2(v.lon);
   } else if (key === 'calendar') {
     if (b.views.indexOf(v.view) < 0) return { ok: false, error: 'calendar_view' };
+  } else if (key === 'photos') {
+    if (b.intervals.indexOf(v.intervalSec) < 0) return { ok: false, error: 'photos_interval' };
+    if (b.orders.indexOf(v.order) < 0) return { ok: false, error: 'photos_order' };
+    if (b.fits.indexOf(v.fit) < 0) return { ok: false, error: 'photos_fit' };
+    if (!isBool(v.captions) || !isBool(v.favoritesOnly)) return { ok: false, error: 'photos_flag' };
+  } else if (key === 'tasks') {
+    if (!isBool(v.onHome)) return { ok: false, error: 'tasks_on_home' };
+  } else if (key === 'alerts') {
+    if (b.leads.indexOf(v.leadMin) < 0) return { ok: false, error: 'alerts_lead' };
+    if (!isBool(v.chime) || !isBool(v.tasks)) return { ok: false, error: 'alerts_flag' };
+    if (!inRange(v.volume, b.volume) || v.volume % b.volumeStep) return { ok: false, error: 'alerts_volume' };
+    if (!inRange(v.tasksAt, b.tasksAt) || v.tasksAt % b.step) return { ok: false, error: 'alerts_tasks_at' };
+    const q = v.quiet;
+    if (q !== 'night') {
+      if (!q || typeof q !== 'object' || Array.isArray(q) || !quarter(q.start) || !quarter(q.end) || q.start === q.end) return { ok: false, error: 'alerts_quiet' };
+      v.quiet = { start: q.start, end: q.end };
+    }
   }
   return { ok: true, value: v };
 }

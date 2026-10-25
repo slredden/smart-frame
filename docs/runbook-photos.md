@@ -8,6 +8,14 @@ per set, shown for 60 seconds each in shuffled order, with a small date caption.
 3. Keep `/admin` open (or reopen it later; it resumes). It copies photos in batches of 20 and shows progress. The frame keeps showing
    the old set until the new one is complete, then switches over in one step.
 
+## On the frame (P1b)
+
+The Photos screen shows the set full screen. Tap for the toolbar (it hides after 5 s): ‹ Pause/Play ›,
+♥ favorite, **Hide** (5 s undo), and **Options**: interval (15 s–5 min), shuffle or picked order,
+fit or fill, captions, favorites only (falls back to every photo when none is a favorite). Options are
+saved in D1 (`settings.photos`) and also apply behind Home. Favorites and hides are D1 rows (no KV
+writes); /admin → Photos → **Unhide all** brings hidden photos back.
+
 ## Limits (Workers Free plan)
 
 - Each photo is one KV write, and KV allows 1,000 writes a day. The Worker keeps its own budget of
