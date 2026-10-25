@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, initialState, railItems, viewEnabled, awake, screenAt, railShown, msUntilRailHides, tap, msUntilIdle } from '../../frame/src/nav.js';
+import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, NO_IDLE, keepsAwake, initialState, railItems, viewEnabled, awake, screenAt, railShown, msUntilRailHides, tap, msUntilIdle } from '../../frame/src/nav.js';
 import { minutesOfDay } from '../../shared/time.js';
 
 const IDLE = 10 * 60000;
@@ -148,6 +148,36 @@ describe('idle', () => {
     expect(awake(initialState(), 0, IDLE)).toBe(false);
     const s = tap(initialState(), 5000, HOME, { go: 'weather' });
     expect(screenAt(s, m(23), 1000, IDLE)).toBe(NIGHT);
+  });
+
+  it('never times out on Photos (plain photo frame), while every other screen still returns to Home', () => {
+    expect(NO_IDLE).toEqual(['photos']);
+    const DAYS = 3 * 86400000;
+    let p = tap(initialState(), 0, HOME, null);
+    p = tap(p, 1000, HOME, { rail: 'photos' });
+    expect(screenAt(p, m(12), 1000, IDLE)).toBe('photos');
+    for (const t of [IDLE + 1000, 10 * IDLE, DAYS]) {
+      expect(screenAt(p, m(12), t, IDLE)).toBe('photos');
+      expect(screenAt(p, m(12), t, 60000)).toBe('photos'); // any idle setting
+      expect(msUntilIdle(p, t, IDLE)).toBe(null);
+    }
+    // Still "not touched lately", so build and 3 AM reloads can wait for a quiet moment.
+    expect(awake(p, IDLE + 1000, IDLE)).toBe(false);
+    // Night mode doesn't take over Photos either (decided 2026-10-25: leave it so).
+    expect(screenAt(p, m(23), DAYS, IDLE)).toBe('photos');
+    // Leaving Photos brings the timeout back.
+    let c = tap(p, DAYS, 'photos', null);
+    c = tap(c, DAYS + 1000, 'photos', { rail: 'calendar' });
+    expect(screenAt(c, m(12), DAYS + 1000 + IDLE - 1, IDLE)).toBe('calendar');
+    expect(screenAt(c, m(12), DAYS + 1000 + IDLE, IDLE)).toBe(HOME);
+    for (const v of ['calendar', 'tasks', 'weather', 'reflection', 'controls', 'settings', HOME]) {
+      expect(keepsAwake(v)).toBe(false);
+      const s = { view: v, lastTouchMono: 0, peekUntilMono: null };
+      expect(screenAt(s, m(12), DAYS, IDLE)).toBe(HOME);
+      expect(screenAt(s, m(23), DAYS, IDLE)).toBe(NIGHT);
+    }
+    // Before any touch Photos isn't showing at all: the schedule decides.
+    expect(screenAt({ view: 'photos', lastTouchMono: null, peekUntilMono: null }, m(12), DAYS, IDLE)).toBe(HOME);
   });
 
   it('uses Denver wall time on both DST change days', () => {
