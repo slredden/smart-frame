@@ -107,7 +107,65 @@ for (const b of document.querySelectorAll('[data-disconnect]')) {
   });
 }
 
+const CAL_ERRORS = {
+  reconnect_calendar: 'Reconnect calendar first (Google needs one more permission to list your calendars).',
+  too_many_calendars: 'Too many calendars selected.',
+};
+
+function renderCalendars(r) {
+  $('cal-max').textContent = String(r.max);
+  const ul = $('cal-list');
+  ul.textContent = '';
+  for (const c of r.calendars || []) {
+    const li = document.createElement('li');
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = c.id;
+    box.checked = c.selected;
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    if (c.color) sw.style.backgroundColor = c.color;
+    label.appendChild(box);
+    label.appendChild(sw);
+    label.appendChild(document.createTextNode(c.summary + (c.primary ? ' (primary)' : '')));
+    li.appendChild(label);
+    ul.appendChild(li);
+  }
+  if (!(r.calendars || []).length) $('cal-out').textContent = 'No calendars loaded yet.';
+}
+
+async function loadCalendars() {
+  try {
+    renderCalendars(await api('GET', 'calendars'));
+  } catch (e) {
+    $('cal-out').textContent = 'Failed: ' + e.message;
+  }
+}
+
+$('cal-sync').addEventListener('click', async () => {
+  $('cal-out').textContent = 'Loading…';
+  try {
+    renderCalendars(await api('POST', 'calendars/sync'));
+    $('cal-out').textContent = 'Loaded.';
+  } catch (e) {
+    $('cal-out').textContent = CAL_ERRORS[e.message] || 'Failed: ' + e.message;
+  }
+});
+
+$('cal-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const selected = Array.prototype.map.call(document.querySelectorAll('#cal-list input:checked'), (b) => b.value);
+  try {
+    const r = await api('PUT', 'calendars', { selected });
+    $('cal-out').textContent = 'Saved ' + r.selected + ' calendar(s).' + (r.refreshed ? ' The frame updates within a minute.' : ' The frame updates at the next refresh.');
+  } catch (e) {
+    $('cal-out').textContent = CAL_ERRORS[e.message] || 'Failed: ' + e.message;
+  }
+});
+
 const oauth = new URLSearchParams(location.search).get('oauth');
 if (oauth) $('grant-out').textContent = oauth === 'ok' ? 'Google connected.' : 'Google sign-in failed: ' + oauth;
 
 loadStatus();
+loadCalendars();

@@ -20,6 +20,10 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS oauth_state (state TEXT PRIMARY KEY, grant_name TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS kv_writes (day TEXT PRIMARY KEY, count INTEGER NOT NULL)`,
+  // v1.1: the account's calendar list (synced from Google on /admin) and which ones the frame shows.
+  `CREATE TABLE IF NOT EXISTS calendars (
+    id TEXT PRIMARY KEY, summary TEXT NOT NULL, color TEXT, is_primary INTEGER NOT NULL DEFAULT 0,
+    selected INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
 ];
 
 const ready = new WeakMap();

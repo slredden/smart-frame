@@ -4,6 +4,7 @@ import { createDevice, listDevices, revokeDevice } from './auth/device.js';
 import { startAuth, finishAuth, disconnect, GRANTS } from './google/oauth.js';
 import { startPicker, stepPicker } from './google/picker.js';
 import { buildHealth } from './health.js';
+import { syncCalendarList, listCalendars, setSelection, refreshCalendar, MAX_SELECTED } from './google/calendar.js';
 import { publishReflection } from './reflection.js';
 
 export async function handleAdmin(request, env, url, admin) {
@@ -51,6 +52,24 @@ export async function handleAdmin(request, env, url, admin) {
   }
   m = /^\/admin\/api\/picker\/([A-Za-z0-9_-]{4,40})\/step$/.exec(path);
   if (m && method === 'POST') return json(await stepPicker(env, m[1]));
+
+  // v1.1 calendar selection. GET lists what D1 has; POST .../sync re-reads the list from Google.
+  if (path === '/admin/api/calendars' && method === 'GET') {
+    return json({ calendars: await listCalendars(db), max: MAX_SELECTED });
+  }
+  if (path === '/admin/api/calendars/sync' && method === 'POST') {
+    const r = await syncCalendarList(env);
+    return r.ok ? json({ calendars: await listCalendars(db), max: MAX_SELECTED }) : error(409, r.error);
+  }
+  if (path === '/admin/api/calendars' && method === 'PUT') {
+    const body = await readJson(request, 16384);
+    if (body.error) return error(400, body.error);
+    const r = await setSelection(db, body.value && body.value.selected);
+    if (!r.ok) return error(400, r.error);
+    // Refresh now so the frame picks the new selection up on its next poll, not the next cron.
+    const c = await refreshCalendar(env);
+    return json({ ok: true, selected: r.selected, refreshed: !!c.ok });
+  }
 
   // Fallback form for the reflection (same validation as Chief's publish endpoint).
   if (path === '/admin/api/reflection' && method === 'PUT') {
