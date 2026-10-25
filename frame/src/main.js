@@ -18,6 +18,7 @@ import { createSettingsScreen, openCalendarsSheet } from './screens/settings.js'
 import { createTasksScreen, openTaskListsSheet } from './screens/tasks.js';
 import { createReflectionScreen } from './screens/reflection.js';
 import { createPhotosScreen } from './screens/photos.js';
+import { createControlsScreen } from './screens/controls.js';
 import { dueTodayLine } from './tasks-view.js';
 import { step as alertStep, dismiss as alertDismiss, loadMemory, saveMemory } from './alerts.js';
 import { renderBanners } from './banner.js';
@@ -39,6 +40,8 @@ const ALL_FEATURES = { calendar: true, tasks: true, weather: true, photos: true,
 const bootMono = performance.now();
 if (MOCK) {
   if (params.get('tasks') === 'noscope') mockConfig.tasksScope = false;
+  if (params.get('spotify')) mockConfig.spotify = params.get('spotify');
+  if (params.get('cams')) mockConfig.cams = params.get('cams');
   window.__sfMock = mockConfig;
 }
 
@@ -401,6 +404,7 @@ const screens = {
   tasks: createTasksScreen(document.getElementById('view-tasks'), ctx),
   photos: createPhotosScreen(document.getElementById('view-photos'), ctx),
   reflection: createReflectionScreen(document.getElementById('view-reflection'), ctx),
+  controls: createControlsScreen(document.getElementById('view-controls'), ctx),
 };
 
 function goTarget(el) {

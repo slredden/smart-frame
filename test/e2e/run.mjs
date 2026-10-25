@@ -43,20 +43,24 @@ const cases = [
   { name: 'night', screen: 'night', at: '2026-10-25T05:10:00Z', check: ['.night-clock'] },
   { name: 'morning-scheduled', screen: '', at: '2026-10-24T12:30:00Z', expectBody: 'screen-home' },
   { name: 'night-scheduled', screen: '', at: '2026-10-25T05:10:00Z', expectBody: 'screen-night' },
-  { name: 'home-rail', screen: '', extra: '&peek=1', at: AT, expectBody: 'rail-on', check: ['.nav-rail', '#home'], rail: 7, hits: true },
-  { name: 'calendar-agenda', screen: 'calendar', at: AT, check: ['.nav-rail', '.toolbar', '.ag-row'], rail: 7, hits: true },
-  { name: 'weather', screen: 'weather', at: AT, check: ['.nav-rail', '.wx-now', '.wx-hour', '.wx-day'], rail: 7, hits: true, count: { '.wx-hour': 24, '.wx-day': 10 } },
-  { name: 'settings', screen: 'settings', at: AT, check: ['.nav-rail', '.set-row'], rail: 7, hits: true, count: { '.set-row': 8 } },
+  { name: 'home-rail', screen: '', extra: '&peek=1', at: AT, expectBody: 'rail-on', check: ['.nav-rail', '#home'], rail: 8, hits: true },
+  { name: 'calendar-agenda', screen: 'calendar', at: AT, check: ['.nav-rail', '.toolbar', '.ag-row'], rail: 8, hits: true },
+  { name: 'weather', screen: 'weather', at: AT, check: ['.nav-rail', '.wx-now', '.wx-hour', '.wx-day'], rail: 8, hits: true, count: { '.wx-hour': 24, '.wx-day': 10 } },
+  { name: 'settings', screen: 'settings', at: AT, check: ['.nav-rail', '.set-row'], rail: 8, hits: true, count: { '.set-row': 9 } },
   { name: 'rail-all', screen: 'settings', extra: '&rail=all', at: AT, check: ['.nav-rail'], rail: 8, hits: true },
   // P1b screens
-  { name: 'tasks', screen: 'tasks', at: AT, check: ['.nav-rail', '.task-tabs', '.task-row', '.task-check'], rail: 7, hits: true, count: { '.task-tab': 3, '.task-sec': 4, '.task-row.sub': 1 } },
-  { name: 'tasks-noscope', screen: 'tasks', extra: '&tasks=noscope', at: AT, check: ['.tasks-empty'], rail: 7, hits: true, count: { '.task-row': 0 } },
-  { name: 'reflection', screen: 'reflection', at: AT, check: ['.refl-big-theme', '.refl-full-practice', '.refl-week'], rail: 7, hits: true, count: { '.refl-week': 5, '.refl-week.future': 2, '.refl-guide-btn': 2 } },
-  { name: 'photos', screen: 'photos', at: AT, check: ['.stage', '.ph-bar'], rail: 7, hits: true, count: { '.ph-btn': 6 } },
+  { name: 'tasks', screen: 'tasks', at: AT, check: ['.nav-rail', '.task-tabs', '.task-row', '.task-check'], rail: 8, hits: true, count: { '.task-tab': 3, '.task-sec': 4, '.task-row.sub': 1 } },
+  { name: 'tasks-noscope', screen: 'tasks', extra: '&tasks=noscope', at: AT, check: ['.tasks-empty'], rail: 8, hits: true, count: { '.task-row': 0 } },
+  { name: 'reflection', screen: 'reflection', at: AT, check: ['.refl-big-theme', '.refl-full-practice', '.refl-week'], rail: 8, hits: true, count: { '.refl-week': 5, '.refl-week.future': 2, '.refl-guide-btn': 2 } },
+  { name: 'photos', screen: 'photos', at: AT, check: ['.stage', '.ph-bar'], rail: 8, hits: true, count: { '.ph-btn': 6 } },
   // Alerts: 08:52 MDT is 8 min before the 9:00 Example meeting; 09:02 adds the 9:00 tasks alert.
   { name: 'banner-home', screen: 'home', at: '2026-10-24T14:52:00Z', check: ['.alerts.open', '.alert'], hits: true, count: { '.alert': 1 } },
   { name: 'banner-two', screen: 'calendar', at: '2026-10-24T15:02:00Z', check: ['.alerts.open'], hits: true, count: { '.alert': 2, '.alert-chip.tasks': 1 } },
   { name: 'banner-photos', screen: 'photos', at: '2026-10-24T14:52:00Z', check: ['.alerts.open'], hits: true, count: { '.alert': 1 } },
+  // P2 Controls: mock Spotify and cameras; indoor cameras are off by default (§11.7).
+  { name: 'controls', screen: 'controls', at: AT, check: ['.nav-rail', '.sp-card', '.cam-grid', '.sp-dev'], rail: 8, hits: true, count: { '.cam-tile': 4, '.cam-tile.has-img': 2, '.cam-tile.off': 2, '.cam-tile.stale': 1, '.sp-dev': 3, '.sp-dev.on': 1 } },
+  { name: 'controls-off', screen: 'controls', extra: '&spotify=off&cams=off', at: AT, check: ['.sp-card.off', '.cam-msg'], rail: 8, hits: true, count: { '.cam-tile': 0, '.sp-dev': 0, '.sp-btn': 0 } },
+  { name: 'controls-offline', screen: 'controls', extra: '&cams=offline&spotify=idle', at: AT, check: ['.sp-card', '.cam-msg'], rail: 8, hits: true, count: { '.cam-tile.has-img': 0, '.sp-dev': 1 } },
   { name: 'banner-night', screen: 'night', at: '2026-10-25T05:10:00Z', count: { '.alert': 0 } },
 ];
 
@@ -485,7 +489,7 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
 // Rail auto-hide: on every screen the rail hides 10 s after the last touch and an empty-space tap
 // brings it back; controls (task checkboxes) work without toggling it but restart a showing rail.
 {
-  const all = ['calendar', 'tasks', 'weather', 'photos', 'reflection', 'settings'];
+  const all = ['calendar', 'tasks', 'weather', 'photos', 'reflection', 'controls', 'settings'];
   const pages = [];
   for (const scr of all) {
     const page = await open({ screen: scr, at: AT });
@@ -502,7 +506,7 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
     expectBody('rail ' + scr + ' hides after 10 s', await bodyOf(page), 'screen-' + scr, 'rail-on');
     if (scr !== 'home') await auditFullWidth(page, scr, false);
     if (scr !== 'home') await auditHits(page, 'rail ' + scr + ' hidden');
-    if (scr === 'tasks' || scr === 'calendar' || scr === 'photos') await page.screenshot({ path: join(OUT, 'rail-hidden-' + scr + '.png') });
+    if (scr === 'tasks' || scr === 'calendar' || scr === 'photos' || scr === 'controls') await page.screenshot({ path: join(OUT, 'rail-hidden-' + scr + '.png') });
     const hit = await page.evaluate((p) => {
       const el = document.elementFromPoint(p.x, p.y);
       if (!el) return 'nothing';
@@ -516,7 +520,7 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
     expectBody('rail ' + scr + ' empty tap', await bodyOf(page), 'rail-on');
     expectBody('rail ' + scr + ' empty tap keeps screen', await bodyOf(page), 'screen-' + scr);
     if (scr !== 'home') await auditFullWidth(page, scr, true);
-    if (scr === 'tasks' || scr === 'calendar' || scr === 'photos') await page.screenshot({ path: join(OUT, 'rail-shown-' + scr + '.png') });
+    if (scr === 'tasks' || scr === 'calendar' || scr === 'photos' || scr === 'controls') await page.screenshot({ path: join(OUT, 'rail-shown-' + scr + '.png') });
     if (scr !== 'tasks' && scr !== 'settings') await page.close();
   }
   // Tasks: a checkbox tap while the rail is hidden keeps it hidden and still checks the task.
@@ -611,6 +615,112 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   await page.screenshot({ path: join(OUT, 'settings-p1b.png') });
   console.log('alert settings'.padEnd(18), 'ok');
   if (page.errors.length) failures.push('alert settings: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
+// Controls (PLAN-v2.md §11.4-§11.7): status messages, pictures only on a new `updated`, optimistic
+// Spotify with a revert toast, enlarge, polling stops on hide, indoor reveal and auto-cover.
+{
+  const page = await open({ screen: 'controls', at: AT });
+  const camCalls = async (id) => (await callsOf(page, 'camImage')).filter((x) => !id || x.id === id);
+  const msg = await textOf(page, '.cam-msg');
+  if (msg) failures.push('controls: unexpected camera message "' + msg + '"');
+  if (!/updated 40 s ago/.test(await textOf(page, '.cam-tile:nth-child(1) .cam-age'))) failures.push('controls: front door age says "' + (await textOf(page, '.cam-tile:nth-child(1) .cam-age')) + '"');
+  if (!/Indoor cameras off/.test(await textOf(page, '.cam-tile.off'))) failures.push('controls: indoor tile not "Indoor cameras off"');
+  if ((await camCalls()).some((x) => x.id === 'c3' || x.id === 'c4')) failures.push('controls: fetched an indoor picture with the setting off');
+  const first = (await camCalls()).length;
+  await sleep(5600);
+  if ((await callsOf(page, 'controlsState')).length < 2) failures.push('controls: no second poll after 5 s');
+  if ((await camCalls()).length !== first) failures.push('controls: re-fetched pictures that had not changed');
+  await page.evaluate(() => (window.__sfMock.camAt.c1 = new Date(Date.parse(window.__sfMock.camAt.c1) + 30000).toISOString()));
+  await sleep(5600);
+  if ((await camCalls('c1')).length !== 2 || (await camCalls('c2')).length !== 1) failures.push('controls: picture fetches ' + JSON.stringify(await camCalls()));
+  // Spotify: optimistic pause, failed play reverts with a toast, volume, transfer.
+  await tapSel(page, '[data-act="sp-pause"]');
+  if (!(await countOf(page, '[data-act="sp-play"]'))) failures.push('controls: Pause did not switch to Play');
+  await page.evaluate(() => (window.__sfMock.spotifyFail = 'premium_needed'));
+  await tapSel(page, '[data-act="sp-play"]');
+  if (!(await countOf(page, '[data-act="sp-play"]'))) failures.push('controls: failed Play did not revert');
+  if (!/Premium/.test(await textOf(page, '#toast'))) failures.push('controls: no revert toast, got "' + (await textOf(page, '#toast')) + '"');
+  await page.screenshot({ path: join(OUT, 'controls-revert-toast.png') });
+  await tapSel(page, '[data-act="sp-vol"][data-dir="1"]');
+  if ((await textOf(page, '.sp-vol-val')) !== '50%') failures.push('controls: volume shows ' + (await textOf(page, '.sp-vol-val')));
+  await tapSel(page, '.sp-dev:nth-child(2)');
+  await sleep(1000);
+  if (!/Example office/.test(await textOf(page, '.sp-dev.on'))) failures.push('controls: transfer did not mark the new speaker');
+  const sent = (await callsOf(page, 'spotify')).map((x) => x.action).join(',');
+  if (sent !== 'pause,play,volume,transfer') failures.push('controls: Spotify writes ' + sent);
+  // Enlarge and close.
+  await tapSel(page, '.cam-tile[data-id="c1"]');
+  if (!(await countOf(page, '.cam-card.big-on'))) failures.push('controls: tile did not enlarge');
+  await page.screenshot({ path: join(OUT, 'controls-enlarged.png') });
+  await auditHits(page, 'controls-enlarged');
+  await tapSel(page, '[data-act="cam-close"]');
+  if (await countOf(page, '.cam-card.big-on')) failures.push('controls: enlarged picture did not close');
+  // Leaving Controls stops the polls and drops every picture; nothing camera-related on Home.
+  await railTap(page, 'home');
+  const polls = (await callsOf(page, 'controlsState')).length;
+  if (await countOf(page, '.cam-img[src]')) failures.push('controls: pictures kept after leaving');
+  await sleep(6000);
+  if ((await callsOf(page, 'controlsState')).length !== polls) failures.push('controls: still polling on Home');
+  const homeCams = await page.evaluate(() => Array.prototype.filter.call(document.querySelectorAll('img'), (i) => /^blob:/.test(i.src || '') && i.getBoundingClientRect().width > 0).length);
+  if (homeCams) failures.push('controls: a camera picture shows on Home');
+  // Settings › Indoor cameras: on, 30 s.
+  await railTap(page, 'settings');
+  await tapSel(page, '[data-act="set-controls"]');
+  await page.screenshot({ path: join(OUT, 'sheet-controls.png') });
+  await auditHits(page, 'sheet-controls');
+  await tapSel(page, '#sheet [data-act="opt"][data-v="true"]');
+  for (let i = 0; i < 4; i++) await tapSel(page, '#sheet [data-act="step"][data-dir="-1"]');
+  await tapSel(page, '[data-act="sheet-done"]');
+  const row = await textOf(page, '[data-act="set-controls"] .set-value');
+  if (row !== 'Shown 30 s per tap') failures.push('controls setting: row says "' + row + '"');
+  await railTap(page, 'controls');
+  await sleep(600);
+  if ((await countOf(page, '.cam-tile.covered')) !== 2) failures.push('indoor: expected 2 covered tiles, got ' + (await countOf(page, '.cam-tile.covered')));
+  if ((await camCalls('c3')).length) failures.push('indoor: fetched before a tap');
+  await tapSel(page, '.cam-tile[data-id="c3"]');
+  await sleep(300);
+  const rv = await camCalls('c3');
+  if (rv.length !== 1 || !rv[0].reveal) failures.push('indoor: reveal fetch ' + JSON.stringify(rv));
+  if ((await countOf(page, '.cam-tile.covered')) !== 1 || !(await countOf(page, '.cam-tile[data-id="c3"].has-img'))) failures.push('indoor: tap did not reveal');
+  await page.screenshot({ path: join(OUT, 'controls-indoor-revealed.png') });
+  await sleep(31000);
+  if ((await countOf(page, '.cam-tile.covered')) !== 2 || (await countOf(page, '.cam-tile[data-id="c3"] .cam-img[src]'))) failures.push('indoor: not covered again after 30 s');
+  await tapSel(page, '.cam-tile[data-id="c4"]');
+  if (!(await countOf(page, '.cam-tile[data-id="c4"].has-img'))) failures.push('indoor: c4 did not reveal');
+  await railTap(page, 'home');
+  await railTap(page, 'controls');
+  await sleep(600);
+  if ((await countOf(page, '.cam-tile.covered')) !== 2) failures.push('indoor: leaving Controls did not cover');
+  console.log('controls flow'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('controls flow: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+{
+  // Spotify idle with the remembered speaker gone: the §11.5 message and the devices that are there.
+  const page = await open({ screen: 'controls', at: AT, extra: '&spotify=idle' });
+  if (!/Nothing playing/.test(await textOf(page, '.sp-card'))) failures.push('spotify idle: no "Nothing playing"');
+  await tapSel(page, '[data-act="sp-play"]');
+  const m = await textOf(page, '.sp-msg');
+  if (m !== 'Example office not available; say "Alexa, Spotify Connect" or play once from the Spotify app') failures.push('spotify idle: message "' + m + '"');
+  await page.screenshot({ path: join(OUT, 'controls-device-absent.png') });
+  await tapSel(page, '.sp-dev');
+  await sleep(1000);
+  if (!/Example speaker/.test(await textOf(page, '.sp-device'))) failures.push('spotify idle: transfer did not play on the listed speaker');
+  // Idle return to Home stops Controls (?idle not set here, so leave via the rail).
+  console.log('spotify absent'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('spotify absent: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+{
+  // Idle return from Controls stops the polls.
+  const page = await open({ screen: 'controls', at: AT, extra: '&idle=0.05' });
+  await sleep(4500);
+  expectBody('controls idle', await bodyOf(page), 'screen-home');
+  const n = (await callsOf(page, 'controlsState')).length;
+  await sleep(5500);
+  if ((await callsOf(page, 'controlsState')).length !== n) failures.push('controls: polling after idle return');
   await page.close();
 }
 

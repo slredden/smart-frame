@@ -19,6 +19,13 @@ files on `reddencloud`. `docs/controls-compose.yaml` is the repo copy of step 2'
   `GET /api/controls/cam/<c1–c4>` (streamed image) for the frame; `/admin` › Controls (HA status, "List cameras
   from Home Assistant", the 4-camera allowlist, the indoor switch). No `HA` binding is in `wrangler.jsonc` yet:
   the Worker detects it at runtime and answers "not connected" (200, `connected:false`) until it exists.
+- Frame: the **Controls** screen is on (`features.controls`, rail button between Reflection and Settings).
+  Spotify card on the left, 2×2 camera snapshots on the right. It polls `/api/spotify/state` and
+  `/api/controls/state` every 5 s only while it's shown (not on Home, at night, after idle return or with the
+  page hidden), and fetches a picture only when its `updated` changes. Without HA it shows "Cameras not
+  connected"; without Spotify, "Connect Spotify on /admin". Settings › **Indoor cameras** (off by default;
+  on: each tap shows one indoor camera for 30–60 s, 45 s default) covers again on timeout, leaving the screen,
+  idle or night.
 
 ## Worker side
 

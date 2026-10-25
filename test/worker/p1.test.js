@@ -81,7 +81,7 @@ describe('device settings API', () => {
   it('state carries defaults, features and the idle minutes from settings', async () => {
     const s = await (await route(req('/api/state', auth(device.token)), env)).json();
     expect(s.settings).toEqual(DEFAULTS);
-    expect(s.features).toEqual({ calendar: true, weather: true, tasks: true, photos: true, reflection: true, controls: false });
+    expect(s.features).toEqual({ calendar: true, weather: true, tasks: true, photos: true, reflection: true, controls: true });
     expect(s.tasks).toEqual({ scope: false, dueToday: [], dueCount: 0, overdue: 0, fetchedAt: null });
     expect(s.config.idleMinutes).toBe(10);
   });
