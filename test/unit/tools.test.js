@@ -91,7 +91,7 @@ describe('cli helpers', () => {
 });
 
 describe('set-worker-secrets', async () => {
-  const { collectSecrets, scrub, SECRETS } = await import('../../tools/set-worker-secrets.mjs');
+  const { collectSecrets, scrub, SECRETS, OPTIONAL } = await import('../../tools/set-worker-secrets.mjs');
   const good = {
     URL_SIGNING_KEY: 'u'.repeat(43),
     TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString('base64'),
@@ -100,10 +100,28 @@ describe('set-worker-secrets', async () => {
     ADMIN_EMAILS: 'one@example.com, two@example.org',
     GOOGLE_CLIENT_SECRET: 'fake-client-secret-0000',
   };
-  it('accepts a complete, well-formed set', () => {
-    const { values, problems } = collectSecrets(good);
+  const fakeJwt = ['eyJhbGciOiJIUzI1NiJ9', 'x'.repeat(80), 'y'.repeat(43)].join('.');
+  const optional = { HA_TOKEN: fakeJwt, SPOTIFY_CLIENT_SECRET: 'f'.repeat(32) };
+  it('accepts a complete, well-formed set; optional Controls secrets are skipped while unset', () => {
+    const { values, problems, skipped } = collectSecrets(good);
     expect(problems).toEqual([]);
     expect(Object.keys(values).sort()).toEqual(Object.keys(SECRETS).sort());
+    expect(skipped).toEqual(['HA_TOKEN', 'SPOTIFY_CLIENT_SECRET']);
+  });
+  it('includes the optional secrets when present', () => {
+    const { values, problems, skipped } = collectSecrets({ ...good, ...optional });
+    expect(problems).toEqual([]);
+    expect(skipped).toEqual([]);
+    expect(Object.keys(values).sort()).toEqual([...Object.keys(SECRETS), ...Object.keys(OPTIONAL)].sort());
+  });
+  it('refuses a malformed optional secret, by name only', () => {
+    const env = { ...good, HA_TOKEN: 'not a token', SPOTIFY_CLIENT_SECRET: 'ABC' };
+    const { problems } = collectSecrets(env);
+    expect(problems).toEqual([
+      'HA_TOKEN: must be a Home Assistant long-lived access token (a JWT)',
+      'SPOTIFY_CLIENT_SECRET: must be 32 lowercase hex characters',
+    ]);
+    expect(problems.join(' ')).not.toContain('not a token');
   });
   it('reports missing and malformed secrets by name only', () => {
     const env = { ...good, GOOGLE_CLIENT_SECRET: '', TOKEN_ENC_KEY: Buffer.alloc(16).toString('base64'), HEALTH_TOKEN_HASH: 'A'.repeat(64) };

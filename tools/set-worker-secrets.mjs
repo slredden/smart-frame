@@ -2,8 +2,9 @@
 // Copies the Worker's secrets from the environment (GitHub Actions secrets) into the smart-frame
 // Worker with one `wrangler secret bulk` call. Run only by .github/workflows/worker-secrets.yml.
 // Never prints a value: output is names, checks and wrangler's own result lines.
-// Refuses when any secret is missing or malformed, or when the Worker doesn't exist yet
-// (`wrangler secret bulk` would otherwise create an empty one).
+// Refuses when any required secret is missing, any secret is malformed, or the Worker doesn't exist yet
+// (`wrangler secret bulk` would otherwise create an empty one). OPTIONAL secrets (Controls) are skipped
+// while unset; `secret bulk` only touches the names it is given, so a skipped one is never deleted.
 import { spawn } from "node:child_process";
 import path from "node:path";
 import readline from "node:readline";
@@ -46,21 +47,36 @@ export const SECRETS = {
       : "looks wrong (too short or has whitespace)",
 };
 
-/** Returns { values, problems } where problems are "NAME: reason" strings (no values). */
+/**
+ * Controls secrets (PLAN-v2 §11.3, §11.5): optional until Stephen has made them. Checked when present.
+ * HA long-lived tokens are JWTs; Spotify client secrets are 32 hex characters.
+ */
+export const OPTIONAL = {
+  HA_TOKEN: (v) =>
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v) && v.length >= 100
+      ? null
+      : "must be a Home Assistant long-lived access token (a JWT)",
+  SPOTIFY_CLIENT_SECRET: (v) =>
+    /^[0-9a-f]{32}$/.test(v) ? null : "must be 32 lowercase hex characters",
+};
+
+/** Returns { values, problems, skipped } where problems are "NAME: reason" strings (no values). */
 export function collectSecrets(env) {
   const values = {};
   const problems = [];
-  for (const [name, check] of Object.entries(SECRETS)) {
+  const skipped = [];
+  for (const [name, check] of [...Object.entries(SECRETS), ...Object.entries(OPTIONAL)]) {
     const v = (env[name] || "").trim();
     if (!v) {
-      problems.push(`${name}: missing`);
+      if (name in OPTIONAL) skipped.push(name);
+      else problems.push(`${name}: missing`);
       continue;
     }
     const err = check(v);
     if (err) problems.push(`${name}: ${err}`);
     else values[name] = v;
   }
-  return { values, problems };
+  return { values, problems, skipped };
 }
 
 /** Drops any line that contains one of the values (belt and braces; wrangler prints names only). */
@@ -97,7 +113,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     );
     process.exit(2);
   }
-  const { values, problems } = collectSecrets(process.env);
+  const { values, problems, skipped } = collectSecrets(process.env);
   if (problems.length) {
     console.error(
       "refusing: secrets not ready, nothing was changed:\n  " +
@@ -121,6 +137,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log(
     `setting ${Object.keys(values).length} secrets on ${WORKER}: ${Object.keys(values).join(", ")}`,
   );
+  if (skipped.length)
+    console.log(`not set yet (optional, left as they are): ${skipped.join(", ")}`);
   const bin = path.join(ROOT, "node_modules/.bin/wrangler");
   const child = spawn(
     bin,
