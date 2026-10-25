@@ -90,6 +90,7 @@ export function createClient(token, fetchImpl, base = '') {
     // P2 Controls (PLAN-v2.md §11.4-§11.7)
     spotifyState: (devices) => call('GET', '/api/spotify/state' + (devices ? '?devices=1' : '')),
     spotifyAction: (action, body) => call('POST', '/api/spotify/' + action, body || {}),
+    spotifyRecent: () => call('GET', '/api/spotify/recent'),
     controlsState: () => call('GET', '/api/controls/state'),
     /** A camera picture as a Blob (it needs the device token, so no plain <img src>). */
     async camImage(id, reveal) {

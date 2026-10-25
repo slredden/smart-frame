@@ -2,8 +2,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { route } from '../../worker/src/index.js';
 import { resetJwksCache } from '../../worker/src/auth/access.js';
-import { startAuth, finishAuth, accessToken, SCOPES, TOKEN_URL } from '../../worker/src/spotify/oauth.js';
-import { buildHealth } from '../../worker/src/health.js';
+import { startAuth, finishAuth, accessToken, SCOPES, OPTIONAL_SCOPES, TOKEN_URL } from '../../worker/src/spotify/oauth.js';
+import { resetRecentCache, pickImage, recentContexts } from '../../worker/src/spotify/recent.js';
+import { buildHealth, isAlert } from '../../worker/src/health.js';
 import { getMeta, setMeta } from '../../worker/src/db.js';
 import { testEnv, setup, req, auth, accessKeys, ORIGIN } from './helpers.js';
 
@@ -68,12 +69,12 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('spotify oauth', () => {
-  it('asks for exactly the two playback scopes, on its own callback path', async () => {
+  it('asks for the two playback scopes plus the two optional Recent scopes, on its own callback path', async () => {
     const env = spEnv();
     await setup(env);
     const url = new URL(await startAuth(env, ORIGIN, NOW));
     expect(url.origin + url.pathname).toBe('https://accounts.spotify.com/authorize');
-    expect(url.searchParams.get('scope')).toBe('user-read-playback-state user-modify-playback-state');
+    expect(url.searchParams.get('scope')).toBe('user-read-playback-state user-modify-playback-state user-read-recently-played playlist-read-private');
     expect(url.searchParams.get('redirect_uri')).toBe(ORIGIN + '/admin/spotify/callback');
     expect(url.searchParams.get('response_type')).toBe('code');
     expect(url.searchParams.get('client_id')).toBe(env.SPOTIFY_CLIENT_ID);
@@ -150,7 +151,8 @@ describe('spotify health', () => {
     await setup(env);
     const h = await buildHealth(env, NOW);
     expect(h.problems).toContain('spotify_not_connected');
-    expect(h.spotify).toEqual({ configured: false, status: 'not_connected', connectedAt: null, reconnectBy: null });
+    expect(h.spotify).toEqual({ configured: false, status: 'not_connected', connectedAt: null, reconnectBy: null, recentScopes: false });
+    expect(h.problems).not.toContain('spotify_recent_needs_consent');
   });
 
   it('adds alerting spotify_reauth_due from day 168', async () => {
@@ -343,5 +345,270 @@ describe('spotify admin', () => {
     const go = await admin(env);
     const r = await go('/admin/spotify/start');
     expect(r.headers.get('location')).toBe('/admin/?spotify=spotify_client_missing');
+  });
+});
+
+// P2.1 Recent picker (PLAN-v2.md §13.1 P2.1). Ids are 22 base-62 characters, like Spotify's.
+const sid = (tag, n) => (tag + String(n).padStart(4, '0')).padEnd(22, 'x');
+const ALL_SCOPES = SCOPES.concat(OPTIONAL_SCOPES).join(' ');
+const IMGS = (k) => [{ url: 'https://i.scdn.co/image/' + k + '-640', width: 640 }, { url: 'https://i.scdn.co/image/' + k + '-300', width: 300 }, { url: 'https://i.scdn.co/image/' + k + '-64', width: 64 }];
+const album = (n) => ({ uri: 'spotify:album:' + sid('al', n), name: 'Album Name ' + n, images: IMGS('al' + n) });
+/** One recently-played entry with no context: a track from album n. Tests set `context` as needed. */
+const played = (n) => ({ track: { type: 'track', name: 'Track Name ' + n, album: album(n) }, context: null });
+const playlist = (n) => ({ uri: 'spotify:playlist:' + sid('pl', n), name: 'Playlist Name ' + n, images: IMGS('pl' + n), owner: { id: 'stephen' } });
+
+describe('spotify recent', () => {
+  beforeEach(() => resetRecentCache());
+
+  async function ready(api, { scope = ALL_SCOPES } = {}) {
+    const env = spEnv();
+    const dev = await setup(env);
+    const net = fakeSpotify(api);
+    net.setScope(scope);
+    await connect(env, net);
+    let nowMs = NOW + 60000;
+    const call = (path, init = {}) => route(req(path, Object.assign({}, init, auth(dev.token))), env, { fetchImpl: net.fetchImpl, nowMs });
+    const post = (action, body) => call('/api/spotify/' + action, { method: 'POST', body: body === undefined ? '' : JSON.stringify(body) });
+    const recent = async () => {
+      const r = await call('/api/spotify/recent');
+      return { status: r.status, body: await r.json(), r };
+    };
+    return { env, net, call, post, recent, tick: (ms) => (nowMs += ms) };
+  }
+  const RP = 'GET /me/player/recently-played?limit=50';
+  const PL = 'GET /me/playlists?limit=20';
+
+  it('needs a device token', async () => {
+    const env = spEnv();
+    await setup(env);
+    expect((await route(req('/api/spotify/recent'), env)).status).toBe(401);
+  });
+
+  it('dedupes contexts newest first, uses the album when there is no context, skips episodes', async () => {
+    const { net, recent } = await ready({
+      [RP]: {
+        items: [
+          Object.assign(played(1), { context: { type: 'album', uri: album(1).uri } }),
+          played(2), // no context: album 2 stands in
+          Object.assign(played(3), { context: { type: 'collection', uri: 'spotify:user:x:collection' } }), // liked songs: album 3
+          Object.assign(played(4), { context: { type: 'album', uri: album(1).uri } }), // album 1 again (dupe)
+          { track: { type: 'episode', name: 'Episode' }, context: { type: 'show', uri: 'spotify:show:' + sid('sh', 1) } },
+          played(5), // album 5
+          played(2), // album 2 again (dupe)
+        ],
+      },
+      [PL]: { items: [] },
+    });
+    const { status, body } = await recent();
+    expect(status).toBe(200);
+    expect(body.recent.map((x) => x.uri)).toEqual([album(1).uri, album(2).uri, album(3).uri, album(5).uri]);
+    expect(body.recent[0]).toEqual({ uri: album(1).uri, type: 'album', name: 'Album Name 1', image: 'https://i.scdn.co/image/al1-64' });
+    expect(body.playlists).toEqual([]);
+    // Albums come with the track: no lookups.
+    expect(net.calls.map((c) => c.key)).toEqual([RP, PL]);
+  });
+
+  it('caps Recent at 10 and fills a short list from playlists without repeats', async () => {
+    const many = { [RP]: { items: Array.from({ length: 14 }, (_, i) => played(i + 1)) }, [PL]: { items: [playlist(1)] } };
+    let t = await ready(many);
+    let body = (await t.recent()).body;
+    expect(body.recent).toHaveLength(10);
+    expect(body.recent.map((x) => x.uri)).toEqual(Array.from({ length: 10 }, (_, i) => album(i + 1).uri));
+    resetRecentCache();
+    // Two recent (one is playlist 2) + playlists 1..5 → playlist 2 not repeated, 6 total.
+    t = await ready({
+      [RP]: { items: [Object.assign(played(1), { context: { type: 'playlist', uri: playlist(2).uri } }), played(3)] },
+      [PL]: { items: [1, 2, 3, 4, 5].map(playlist) },
+    });
+    body = (await t.recent()).body;
+    expect(body.recent.map((x) => x.uri)).toEqual([playlist(2).uri, album(3).uri, playlist(1).uri, playlist(3).uri, playlist(4).uri, playlist(5).uri]);
+    expect(body.recent.map((x) => x.type)).toEqual(['playlist', 'album', 'playlist', 'playlist', 'playlist', 'playlist']);
+    expect(body.playlists).toHaveLength(5);
+    // His saved playlist needed no lookup.
+    expect(t.net.calls.map((c) => c.key)).toEqual([RP, PL]);
+  });
+
+  it('looks up playlists and artists it does not know; skips a 404 or 403 playlist', async () => {
+    const pl9 = 'spotify:playlist:' + sid('pl', 9);
+    const pl8 = 'spotify:playlist:' + sid('pl', 8);
+    const pl7 = 'spotify:playlist:' + sid('pl', 7);
+    const ar1 = 'spotify:artist:' + sid('ar', 1);
+    const { net, recent } = await ready({
+      [RP]: {
+        items: [
+          Object.assign(played(1), { context: { type: 'playlist', uri: pl9 } }),
+          Object.assign(played(2), { context: { type: 'playlist', uri: pl8 } }),
+          Object.assign(played(3), { context: { type: 'artist', uri: ar1 } }),
+          Object.assign(played(4), { context: { type: 'playlist', uri: pl7 } }),
+        ],
+      },
+      [PL]: { items: [] },
+      ['GET /playlists/' + sid('pl', 9) + '?fields=name,images']: () => json({ error: { status: 404, message: 'Not found' } }, 404),
+      ['GET /playlists/' + sid('pl', 8) + '?fields=name,images']: () => json({ error: { status: 403, message: 'Forbidden' } }, 403),
+      ['GET /artists/' + sid('ar', 1)]: { name: 'Artist Name 1', images: IMGS('ar1') },
+      ['GET /playlists/' + sid('pl', 7) + '?fields=name,images']: { name: 'Mix Name 7', images: [{ url: 'https://mosaic.scdn.co/640/abc', width: null }] },
+    });
+    const { status, body } = await recent();
+    expect(status).toBe(200);
+    expect(body.recent).toEqual([
+      { uri: ar1, type: 'artist', name: 'Artist Name 1', image: 'https://i.scdn.co/image/ar1-64' },
+      { uri: pl7, type: 'playlist', name: 'Mix Name 7', image: null }, // art off i.scdn.co is dropped (img-src)
+    ]);
+    expect(net.calls).toHaveLength(6);
+  });
+
+  it('picks the smallest image at least 64 px, i.scdn.co only', () => {
+    expect(pickImage(IMGS('x'))).toBe('https://i.scdn.co/image/x-64');
+    expect(pickImage([{ url: 'https://i.scdn.co/image/a', width: 300 }, { url: 'https://i.scdn.co/image/b', width: 60 }])).toBe('https://i.scdn.co/image/a');
+    expect(pickImage([{ url: 'https://i.scdn.co/image/a', width: null }])).toBe('https://i.scdn.co/image/a');
+    expect(pickImage([{ url: 'http://evil.example/x.jpg', width: 64 }])).toBe(null);
+    expect(pickImage(null)).toBe(null);
+    expect(recentContexts([{ context: null, track: { type: 'track', album: { uri: 'spotify:album:bad' } } }])).toEqual([]);
+  });
+
+  it('caches 60 s in memory, writes no KV and no D1 rows', async () => {
+    const { env, net, recent, tick } = await ready({ [RP]: { items: [played(1)] }, [PL]: { items: [playlist(1)] } });
+    const put = vi.spyOn(env.FRAME_PHOTOS, 'put');
+    const rows = async () => {
+      let n = 0;
+      for (const t of ['meta', 'cache', 'kv_writes', 'settings', 'grants']) n += (await env.FRAME_DB.prepare('SELECT COUNT(*) AS n FROM ' + t).first()).n;
+      return n;
+    };
+    const before = await rows();
+    await recent();
+    tick(59000);
+    await recent();
+    expect(net.calls.map((c) => c.key)).toEqual([RP, PL]);
+    tick(2000);
+    await recent();
+    expect(net.calls).toHaveLength(4);
+    expect(put).not.toHaveBeenCalled();
+    expect(await rows()).toBe(before);
+    const kv = await env.FRAME_DB.prepare('SELECT COALESCE(SUM(count), 0) AS n FROM kv_writes').first();
+    expect(kv.n).toBe(0);
+  });
+
+  it('without the new scopes: needs_consent, playback still works, soft health code with no alert', async () => {
+    const { env, net, recent, post } = await ready({ 'PUT /me/player/pause': null }, { scope: SCOPES.join(' ') });
+    const r = await recent();
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'needs_consent' });
+    expect(net.calls).toHaveLength(0);
+    expect((await post('play')).status).toBe(200);
+    expect((await post('pause')).status).toBe(200);
+    await env.FRAME_DB.prepare('UPDATE devices SET last_heartbeat = ?').bind(new Date(NOW).toISOString()).run();
+    const h = await buildHealth(env, NOW);
+    expect(h.problems).toContain('spotify_recent_needs_consent');
+    expect(h.spotify.recentScopes).toBe(false);
+    // Soft: only the (unconnected) Google grants alert in this bare test env, never this code.
+    expect(isAlert('spotify_recent_needs_consent')).toBe(false);
+    expect(h.problems.filter(isAlert).filter((p) => p.includes('spotify'))).toEqual([]);
+  });
+
+  it('a reconnect with the new scopes clears the soft code and restarts the 6-month clock', async () => {
+    const env = spEnv();
+    await setup(env);
+    const net = fakeSpotify();
+    await connect(env, net, NOW);
+    let h = await buildHealth(env, NOW);
+    expect(h.problems).toContain('spotify_recent_needs_consent');
+    net.setScope(ALL_SCOPES);
+    await connect(env, net, NOW + 10 * DAY);
+    h = await buildHealth(env, NOW + 10 * DAY);
+    expect(h.problems).not.toContain('spotify_recent_needs_consent');
+    expect(h.spotify.recentScopes).toBe(true);
+    expect(h.spotify.connectedAt).toBe(new Date(NOW + 10 * DAY).toISOString());
+    expect(h.spotify.reconnectBy).toBe(new Date(NOW + 192 * DAY).toISOString());
+  });
+
+  it('not connected says so without calling Spotify', async () => {
+    const env = spEnv();
+    const dev = await setup(env);
+    const r = await route(req('/api/spotify/recent', auth(dev.token)), env, { fetchImpl: () => { throw new Error('no fetch'); } });
+    expect(r.status).toBe(200);
+    expect((await r.json()).connected).toBe(false);
+  });
+
+  it('429 backs off per Retry-After without calling Spotify again; 403 is Premium needed', async () => {
+    let busy = true;
+    const t = await ready({
+      [RP]: () => (busy ? json({ error: { status: 429, message: 'busy' } }, 429, { 'Retry-After': '7' }) : json({ items: [] })),
+      [PL]: { items: [] },
+    });
+    let r = await t.recent();
+    expect(r.status).toBe(429);
+    expect(r.r.headers.get('retry-after')).toBe('7');
+    expect(r.body).toEqual({ error: 'spotify_busy', retryAfter: 7 });
+    busy = false;
+    t.tick(3000);
+    r = await t.recent();
+    expect(r.status).toBe(429);
+    expect(r.body.retryAfter).toBe(4);
+    expect(t.net.calls).toHaveLength(1);
+    t.tick(5000);
+    expect((await t.recent()).status).toBe(200);
+    resetRecentCache();
+    const q = await ready({ [RP]: () => json({ error: { status: 429, message: 'quota', reason: 'QUOTA_EXCEEDED' } }, 429) });
+    expect((await q.recent()).body.retryAfter).toBe(60);
+    resetRecentCache();
+    const p = await ready({ [RP]: () => json({ error: { status: 403, message: 'Premium required', reason: 'PREMIUM_REQUIRED' } }, 403) });
+    r = await p.recent();
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: 'premium_needed' });
+    expect(logs.join('\n')).toMatch(/spotify_recent.*PREMIUM_REQUIRED/);
+  });
+
+  it('plays a context from the beginning on the active device, shuffle untouched', async () => {
+    const { net, post } = await ready();
+    const pl = 'spotify:playlist:' + sid('pl', 1);
+    const al = 'spotify:album:' + sid('al', 1);
+    const ar = 'spotify:artist:' + sid('ar', 1);
+    for (const u of [pl, al, ar]) expect((await post('play', { context_uri: u })).status).toBe(200);
+    expect(net.calls).toEqual([
+      expect.objectContaining({ key: 'PUT /me/player/play', body: { context_uri: pl, offset: { position: 0 }, position_ms: 0 } }),
+      expect.objectContaining({ key: 'PUT /me/player/play', body: { context_uri: al, offset: { position: 0 }, position_ms: 0 } }),
+      expect.objectContaining({ key: 'PUT /me/player/play', body: { context_uri: ar } }),
+    ]);
+    expect(net.calls.some((c) => c.key.includes('shuffle'))).toBe(false);
+  });
+
+  it('validates context_uri', async () => {
+    const { net, post } = await ready();
+    for (const u of ['spotify:track:' + sid('tr', 1), 'spotify:show:' + sid('sh', 1), 'spotify:playlist:short', 'spotify:playlist:' + sid('pl', 1) + 'x', 'https://open.spotify.com/playlist/' + sid('pl', 1), 'spotify:playlist:' + sid('pl', 1).slice(0, 21) + '/', 42, null, '']) {
+      const r = await post('play', { context_uri: u });
+      expect(r.status).toBe(400);
+      expect(await r.json()).toEqual({ error: 'bad_context' });
+    }
+    expect(net.calls).toHaveLength(0);
+  });
+
+  it('with no active device plays the context on the remembered device, or 409 device_absent', async () => {
+    const noActive = () => json({ error: { status: 404, message: 'Player command failed: No active device found', reason: 'NO_ACTIVE_DEVICE' } }, 404);
+    const al = 'spotify:album:' + sid('al', 1);
+    const { env, net, post } = await ready({ 'PUT /me/player/play': noActive, 'GET /me/player/devices': { devices: [ECHO] } });
+    const r = await post('play', { context_uri: al });
+    expect(r.status).toBe(200);
+    expect(net.calls.map((c) => c.key)).toEqual(['PUT /me/player/play', 'GET /me/player/devices', 'PUT /me/player/play?device_id=dev-echo']);
+    expect(net.calls[2].body).toEqual({ context_uri: al, offset: { position: 0 }, position_ms: 0 });
+    await setMeta(env.FRAME_DB, 'spotify_last_device', 'Kitchen Echo');
+    const r2 = await post('play', { context_uri: al });
+    expect(r2.status).toBe(409);
+    expect((await r2.json()).error).toBe('device_absent');
+    expect(net.calls.at(-1).key).toBe('GET /me/player/devices');
+  });
+
+  it('logs counts and status codes only: no tokens, names or listening history', async () => {
+    const pl7 = 'spotify:playlist:' + sid('pl', 7);
+    const { recent, post } = await ready({
+      [RP]: { items: [played(1), Object.assign(played(2), { context: { type: 'playlist', uri: pl7 } })] },
+      [PL]: { items: [playlist(1)] },
+      ['GET /playlists/' + sid('pl', 7) + '?fields=name,images']: () => json({ error: { status: 404, message: 'Not found' } }, 404),
+    });
+    expect((await recent()).status).toBe(200);
+    await post('play', { context_uri: playlist(1).uri });
+    const all = logs.join('\n');
+    expect(all).toContain('spotify_recent');
+    expect(all).toContain('spotify_action');
+    expect(all).not.toMatch(/sp-at|sp-rt|ffffffff|Name|Track|spotify:|i\.scdn|al0001|pl0001|pl0007/);
   });
 });

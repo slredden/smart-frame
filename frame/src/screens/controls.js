@@ -36,6 +36,15 @@ const SPOTIFY_ERRORS = {
 };
 export const spotifyErrorText = (code) => SPOTIFY_ERRORS[code] || "Spotify didn't answer. Try again.";
 
+/** P2.1 Recent sheet. */
+export const RECENT_NEEDS_CONSENT = 'Reconnect Spotify on /admin to see recent';
+const TYPE_LABEL = { playlist: 'Playlist', album: 'Album', artist: 'Artist' };
+const ART_OK = /^(https:\/\/i\.scdn\.co\/|data:image\/svg\+xml,)/;
+export function recentErrorText(code) {
+  if (code === 'needs_consent') return RECENT_NEEDS_CONSENT;
+  return spotifyErrorText(code);
+}
+
 /** §11.5: the remembered device isn't in Spotify's list. */
 export const absentText = (name) => (name || 'Your speaker') + ' not available; say "Alexa, Spotify Connect" or play once from the Spotify app';
 
@@ -68,11 +77,13 @@ export function createControlsScreen(root, ctx) {
   const title = h('div', 'sp-title');
   const artist = h('div', 'sp-artist');
   const device = h('div', 'sp-device');
+  // P2.1: opens the Recent / Playlists sheet.
+  const recentBtn = btn('Recent', 'sp-recent', 'sp-recent');
   const spMsg = h('div', 'sp-msg');
   const btns = h('div', 'sp-btns');
   const devHead = h('div', 'sp-devs-head', '', [h('span', 'sp-devs-title', 'Play on…'), btn('Refresh', 'sp-devices', 'sp-refresh')]);
   const devList = h('div', 'sp-devs');
-  spCard.appendChild(h('div', 'sp-now', '', [art, h('div', 'sp-text', '', [title, artist, device])]));
+  spCard.appendChild(h('div', 'sp-now', '', [art, h('div', 'sp-text', '', [title, artist, device, recentBtn])]));
   spCard.appendChild(btns);
   spCard.appendChild(spMsg);
   spCard.appendChild(devHead);
@@ -116,6 +127,7 @@ export function createControlsScreen(root, ctx) {
     clear(devList);
     const connected = !!(sp && sp.connected);
     spCard.classList.toggle('off', !connected);
+    recentBtn.style.display = 'none';
     if (!sp) {
       title.textContent = 'Spotify';
       artist.textContent = '';
@@ -149,6 +161,7 @@ export function createControlsScreen(root, ctx) {
     btns.appendChild(btn('–', 'sp-vol', 'sp-btn sp-vol', { dir: '-1' }));
     btns.appendChild(h('span', 'sp-vol-val', vol === null ? '–' : vol + '%'));
     btns.appendChild(btn('+', 'sp-vol', 'sp-btn sp-vol', { dir: '1' }));
+    recentBtn.style.display = '';
     spMsg.textContent = spAbsent ? absentText(spAbsent.name) : spNote || (it ? '' : 'Nothing playing');
     devHead.style.display = '';
     const list = spAbsent && spAbsent.devices ? spAbsent.devices : sp.devices || [];
@@ -204,6 +217,104 @@ export function createControlsScreen(root, ctx) {
       ctx.toast.show({ text: spotifyErrorText(code), ms: REVERT_TOAST_MS });
     }
     renderSpotify();
+  }
+
+  // ----- Recent sheet (P2.1) -----
+  let pick = null; // {tab, data, error, timer}
+
+  function pickTile(it) {
+    const tile = h('button', 'sp-tile tap-row', '');
+    tile.type = 'button';
+    tile.setAttribute('data-act', 'sp-pick');
+    tile.setAttribute('data-uri', it.uri);
+    const artBox = h('div', 'sp-tile-art');
+    if (it.image && ART_OK.test(it.image)) {
+      const img = h('img', '');
+      img.setAttribute('src', it.image);
+      img.setAttribute('alt', '');
+      artBox.appendChild(img);
+    }
+    tile.appendChild(artBox);
+    tile.appendChild(h('div', 'sp-tile-text', '', [h('div', 'sp-tile-name', it.name || ''), h('div', 'sp-tile-type', TYPE_LABEL[it.type] || '')]));
+    return tile;
+  }
+
+  function renderPick() {
+    if (!pick) return;
+    const { wrap } = pick;
+    clear(wrap);
+    const tabs = h('div', 'sp-tabs');
+    for (const [k, label] of [['recent', 'Recent'], ['playlists', 'Playlists']]) {
+      const t = btn(label, 'sp-tab', 'sp-tab' + (pick.tab === k ? ' on' : ''), { tab: k });
+      tabs.appendChild(t);
+    }
+    wrap.appendChild(tabs);
+    const list = h('div', 'sp-pick-list ' + (pick.tab === 'recent' ? 'sp-pick-recent' : 'sp-pick-playlists'));
+    wrap.appendChild(list);
+    if (pick.error) {
+      list.appendChild(h('div', 'sp-pick-msg', recentErrorText(pick.error)));
+      return;
+    }
+    if (!pick.data) {
+      list.appendChild(h('div', 'sp-pick-msg', 'Loading…'));
+      return;
+    }
+    const items = pick.tab === 'recent' ? pick.data.recent || [] : pick.data.playlists || [];
+    if (!items.length) list.appendChild(h('div', 'sp-pick-msg', pick.tab === 'recent' ? 'Nothing played recently.' : 'No playlists.'));
+    for (const it of items) list.appendChild(pickTile(it));
+  }
+
+  function pickTouched() {
+    if (!pick) return;
+    clearTimeout(pick.timer);
+    pick.timer = setTimeout(() => ctx.sheet.close(), ctx.sheetIdleMs || 30000);
+  }
+
+  async function openRecent() {
+    if (!sp || !sp.connected) return;
+    ctx.sheet.open({
+      title: 'Play from Spotify',
+      cls: 'sp-pick',
+      noCancel: true,
+      doneLabel: 'Close',
+      closeOnOutside: true,
+      onClose() {
+        if (pick) clearTimeout(pick.timer);
+        pick = null;
+      },
+      build(body) {
+        const wrap = h('div', 'sp-pick-wrap');
+        // Scrolling the Playlists tab is a touch too (a drag never reaches the tap handler).
+        for (const ev of ['pointerdown', 'scroll']) wrap.addEventListener(ev, pickTouched, true);
+        body.appendChild(wrap);
+        pick = { tab: 'recent', data: null, error: '', timer: 0, wrap };
+        return {
+          onTouch: pickTouched,
+          onTap(el, act) {
+            if (act === 'sp-tab') {
+              pick.tab = el.getAttribute('data-tab') === 'playlists' ? 'playlists' : 'recent';
+              renderPick();
+            } else if (act === 'sp-pick') {
+              const uri = el.getAttribute('data-uri');
+              ctx.sheet.close();
+              spotify('play', { context_uri: uri }, (s) => (s.playing = true));
+            }
+          },
+        };
+      },
+    });
+    pickTouched();
+    renderPick();
+    const mine = pick;
+    const r = await ctx.client.spotifyRecent();
+    if (!pick || pick !== mine) return;
+    if (r.status === 200 && r.data && r.data.connected) pick.data = r.data;
+    else if (r.status === 200 && r.data) pick.error = 'not_connected';
+    else {
+      pick.error = (r.data && r.data.error) || 'offline';
+      if (pick.error === 'spotify_busy') spPauseUntil = Date.now() + Math.max(5, Number(r.data.retryAfter || 30)) * 1000;
+    }
+    renderPick();
   }
 
   // ----- Cameras -----
@@ -391,7 +502,8 @@ export function createControlsScreen(root, ctx) {
     },
     isPolling: () => active && !!timer,
     onTap(el, act) {
-      if (act === 'sp-play') spotify('play', undefined, (s) => (s.playing = true));
+      if (act === 'sp-recent') openRecent();
+      else if (act === 'sp-play') spotify('play', undefined, (s) => (s.playing = true));
       else if (act === 'sp-pause') spotify('pause', undefined, (s) => (s.playing = false));
       else if (act === 'sp-next') spotify('next');
       else if (act === 'sp-prev') spotify('prev');

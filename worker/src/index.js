@@ -16,6 +16,7 @@ import { refreshCalendar, calendarWindow, listCalendars, setSelection, syncCalen
 import { getSettings, putSetting, overWriteBudget } from './settings.js';
 import { getCache } from './db.js';
 import { spotifyState, spotifyAction } from './spotify/api.js';
+import { spotifyRecent } from './spotify/recent.js';
 import { controlsState, camImage } from './controls.js';
 import { ymdIn } from '../../shared/time.js';
 
@@ -141,6 +142,10 @@ async function deviceApi(request, env, url, device, deps) {
   // the per-device rate limit above still applies.
   if (path === '/api/spotify/state' && method === 'GET') {
     return spotifyReply(await spotifyState(env, { fetchImpl, nowMs, devices: url.searchParams.get('devices') === '1' }));
+  }
+  // P2.1 Recent picker: reads only, cached 60 s in memory.
+  if (path === '/api/spotify/recent' && method === 'GET') {
+    return spotifyReply(await spotifyRecent(env, { fetchImpl, nowMs }));
   }
   const spotifyMatch = /^\/api\/spotify\/([a-z]{1,12})$/.exec(path);
   if (spotifyMatch && method === 'POST') {

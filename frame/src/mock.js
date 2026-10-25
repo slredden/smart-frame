@@ -24,6 +24,9 @@ export const mockConfig = {
   cams: 'on',
   spotifyFail: null,
   camAt: {},
+  // P2.1 Recent sheet: ?recent=consent|short|busy (default: 10 recent, 20 playlists); ?sheetidle=ms
+  // shortens the sheet's 30 s auto-close for the e2e test.
+  recent: 'on',
 };
 
 const LISTS = [
@@ -257,6 +260,24 @@ function spotifyStateMock(devices) {
   };
 }
 
+// Offline art for the e2e test (the Worker only ever sends https://i.scdn.co/ art).
+const mockArt = (hue) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="hsl(' + hue + ',45%,45%)"/></svg>');
+const MOCK_TYPES = ['playlist', 'album', 'artist', 'album', 'playlist'];
+const mockId = (tag, n) => (tag + String(n).padStart(4, '0')).padEnd(22, 'x');
+function spotifyRecentMock() {
+  mockConfig.calls.push({ m: 'spotifyRecent' });
+  if (mockConfig.spotify === 'off') return { status: 200, data: { connected: false, reason: 'not_connected' } };
+  if (mockConfig.recent === 'consent') return { status: 409, data: { error: 'needs_consent' } };
+  if (mockConfig.recent === 'busy') return { status: 429, data: { error: 'spotify_busy', retryAfter: 7 } };
+  const playlists = Array.from({ length: 20 }, (_, i) => ({ uri: 'spotify:playlist:' + mockId('pl', i + 1), type: 'playlist', name: 'Example playlist ' + (i + 1), image: i % 4 === 3 ? null : mockArt(i * 17) }));
+  const n = mockConfig.recent === 'short' ? 3 : 10;
+  const recent = Array.from({ length: n }, (_, i) => {
+    const type = MOCK_TYPES[i % MOCK_TYPES.length];
+    return { uri: 'spotify:' + type + ':' + mockId(type.slice(0, 2), i + 1), type, name: 'Example ' + type + ' ' + (i + 1) + (i === 1 ? ' with a much longer name that has to wrap or clip' : ''), image: mockArt(200 + i * 13) };
+  });
+  return { status: 200, data: { connected: true, recent, playlists } };
+}
+
 function spotifyActionMock(action, body) {
   mockConfig.calls.push({ m: 'spotify', action, body });
   if (mockConfig.spotify === 'off') return { status: 409, data: { error: 'not_connected' } };
@@ -359,6 +380,7 @@ export function createMockClient(now, tz) {
     },
     spotifyState: (devices) => ok(spotifyStateMock(devices)),
     spotifyAction: (action, body) => Promise.resolve(spotifyActionMock(action, body || {})),
+    spotifyRecent: () => Promise.resolve(spotifyRecentMock()),
     controlsState: () => Promise.resolve(controlsStateMock(now())),
     camImage: (id, reveal) => Promise.resolve(camImageMock(id, reveal)),
   };

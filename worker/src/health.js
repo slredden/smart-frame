@@ -12,6 +12,9 @@ export const OFFLINE_MINUTES = 60;
 
 const ageMin = (iso, nowMs) => (iso ? Math.floor((nowMs - Date.parse(iso)) / 60000) : null);
 
+/** Problems that email Stephen; everything else is soft (shown on /api/health only). */
+export const isAlert = (p) => p.startsWith('frame_') || p.startsWith('grant_') || p === 'spotify_reauth_due';
+
 export async function buildHealth(env, nowMs = Date.now()) {
   const db = env.FRAME_DB;
   const tz = env.TIME_ZONE || 'America/Denver';
@@ -66,13 +69,15 @@ export async function buildHealth(env, nowMs = Date.now()) {
   if (spotify.status === 'needs_reconsent') problems.push('grant_spotify_needs_reconsent');
   else if (spotify.status !== 'ok') problems.push('spotify_not_connected');
   else if (spotify.reauthDue) problems.push('spotify_reauth_due');
+  // P2.1 (soft): the grant predates the Recent picker's optional scopes; Stephen reconnects on /admin.
+  if (spotify.status === 'ok' && !spotify.recentScopes) problems.push('spotify_recent_needs_consent');
   // P2 Controls: all soft. Cameras are a nice-to-have; the frame says "Cameras offline" itself.
   if (!haOn) problems.push('controls_not_connected');
   else if (haOk === false) problems.push('controls_ha_unreachable');
   else if (!camCount) problems.push('controls_no_cameras');
 
   // Chief emails Stephen only for these: frame offline > 1 h, or a Google sign-in that needs fixing.
-  const alert = problems.some((p) => p.startsWith('frame_') || p.startsWith('grant_') || p === 'spotify_reauth_due');
+  const alert = problems.some(isAlert);
   return {
     ok: problems.length === 0,
     alert,
@@ -81,7 +86,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
     frame: { lastHeartbeat, ageMinutes: frameAge, offline, build: frameBuild },
     grants: { calendar: { status: grants.calendar.status, tasksScope }, photos: { status: grants.photos.status } },
     controls: { connected: haOn, reachable: haOk, cameras: camCount },
-    spotify: { configured: spotify.configured, status: spotify.status, connectedAt: spotify.connectedAt, reconnectBy: spotify.reconnectBy },
+    spotify: { configured: spotify.configured, status: spotify.status, connectedAt: spotify.connectedAt, reconnectBy: spotify.reconnectBy, recentScopes: spotify.recentScopes },
     photos: { lastSync: photoSync, count: set ? set.count : 0 },
     weather: { lastFetch: weatherOk, ageMinutes: wAge },
     calendar: { lastFetch: calendarOk },

@@ -34,7 +34,8 @@ Alerting (`alert: true`):
 Soft (shown, no email): `weather_stale`, `calendar_stale` (the cron will retry; the frame keeps
 showing the last good data), `reflection_no_current_week` (publish the next guide),
 `spotify_not_connected` (no `SPOTIFY_CLIENT_SECRET` yet, or Stephen hasn't connected Spotify at
-`/admin`), `controls_not_connected` (no `HA` Workers VPC binding or no `HA_TOKEN` yet),
+`/admin`), `spotify_recent_needs_consent` (Spotify works but the grant predates the P2.1 Recent scopes;
+Stephen reconnects once at `/admin` → Spotify), `controls_not_connected` (no `HA` Workers VPC binding or no `HA_TOKEN` yet),
 `controls_ha_unreachable` (the last HA call failed: tunnel, `cloudflared` or HA down),
 `controls_no_cameras` (HA connected but no cameras mapped at `/admin` › Controls), `tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
 expected until Stephen reconnects at /admin after the P1 deploy, or if he unticks Tasks; at most one

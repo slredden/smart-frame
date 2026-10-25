@@ -56,6 +56,18 @@ files on `reddencloud`. `docs/controls-compose.yaml` is the repo copy of step 2'
   `SPOTIFY_CLIENT_SECRET` is a GitHub secret copied by `worker-secrets.yml` (optional until set).
 - Redirect URI: `https://smart-frame.sredden.workers.dev/admin/spotify/callback` (behind `/admin` Access).
 - Connect on `/admin` › Spotify. Scopes: `user-read-playback-state user-modify-playback-state` only.
+  P2.1 (Recent picker) also asks for the optional `user-read-recently-played playlist-read-private`. A grant
+  from before P2.1 keeps working for playback; the Recent sheet says "Reconnect Spotify on /admin to see
+  recent" and health shows the soft `spotify_recent_needs_consent` until Stephen reconnects once.
+- **Recent picker (P2.1).** Controls › Recent opens "Play from Spotify": a Recent tab (up to 10 recently
+  played playlists, albums or artists, 2×5, no scrolling; an item with no context counts as its album;
+  podcasts skipped; topped up from playlists) and a Playlists tab (up to 20 of Stephen's playlists,
+  scrolls). A tap plays it from the start on the active speaker, else the remembered one, else "not
+  available" (409 `device_absent`); shuffle stays as last set. Spotify-owned playlists that dev mode
+  refuses (404/403) are skipped. `GET /api/spotify/recent` caches 60 s in memory only (no KV or D1
+  writes); 429 backs off per `Retry-After`. Art is Spotify's CDN only (CSP `img-src` allows
+  `https://i.scdn.co`). Logs carry counts and statuses, never names or history. The sheet closes on an
+  outside tap, Close, or 30 s idle.
 - The refresh token expires 6 months after connecting. `/admin` shows "Reconnect Spotify by <date>", and
   `/api/health` adds `spotify_reauth_due` (alerting) from day 168.
 - The frame remembers the last speaker by name (default "Stephen's Office"). If Spotify doesn't list it, the
@@ -65,7 +77,8 @@ files on `reddencloud`. `docs/controls-compose.yaml` is the repo copy of step 2'
 
 Soft (no email): `controls_not_connected` (no `HA` binding or no `HA_TOKEN` yet), `controls_ha_unreachable`
 (the last HA call failed; clears on the next one that reaches HA), `controls_no_cameras` (connected, but no
-cameras mapped on `/admin` › Controls yet), `spotify_not_connected` (Spotify not connected on `/admin` yet, or `SPOTIFY_CLIENT_SECRET` not set).
+cameras mapped on `/admin` › Controls yet), `spotify_not_connected` (Spotify not connected on `/admin` yet, or `SPOTIFY_CLIENT_SECRET` not set),
+`spotify_recent_needs_consent` (connected before P2.1; reconnect once on `/admin` › Spotify for the Recent picker).
 Alerting: `spotify_reauth_due`, `grant_spotify_needs_reconsent` (Spotify refused the refresh token).
 
 ## The HA stack on `reddencloud` (PLAN-v2.md §11.9)

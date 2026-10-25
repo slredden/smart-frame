@@ -14,10 +14,12 @@ export function createSheet(root) {
   root.appendChild(panel);
 
   function close() {
+    const was = cur;
     cur = null;
     root.classList.remove('open');
     clear(body);
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    if (was && was.onClose) was.onClose();
   }
 
   async function finish() {
@@ -37,15 +39,18 @@ export function createSheet(root) {
   }
 
   return {
-    /** spec: {title, build(body, setMsg) -> {onTap?(el)}, onDone() -> true | 'error text', doneLabel, noCancel, wide} */
+    /**
+     * spec: {title, build(body, setMsg) -> {onTap?(el, act), onTouch?()}, onDone() -> true | 'error text',
+     * doneLabel, noCancel, wide, cls, closeOnOutside (a tap outside the panel closes), onClose()}
+     */
     open(spec) {
       clear(body);
       msg.textContent = '';
       title.textContent = spec.title;
-      panel.className = 'sheet-panel' + (spec.wide ? ' wide' : '');
+      panel.className = 'sheet-panel' + (spec.wide ? ' wide' : '') + (spec.cls ? ' ' + spec.cls : '');
       done.textContent = spec.doneLabel || 'Done';
       cancel.style.display = spec.noCancel ? 'none' : '';
-      cur = { onDone: spec.onDone, busy: false, handlers: {} };
+      cur = { onDone: spec.onDone, onClose: spec.onClose, outside: !!spec.closeOnOutside, busy: false, handlers: {} };
       cur.handlers = spec.build(body, (t) => (msg.textContent = t || '')) || {};
       root.classList.add('open');
     },
@@ -54,6 +59,11 @@ export function createSheet(root) {
     /** Routes a tap inside the sheet. Returns true when the sheet consumed it. */
     onTap(el) {
       if (!cur) return false;
+      if (cur.outside && el && el.isConnected && !panel.contains(el)) {
+        close();
+        return true;
+      }
+      if (cur.handlers.onTouch) cur.handlers.onTouch();
       const act = el && el.closest ? el.closest('[data-act]') : null;
       const a = act ? act.getAttribute('data-act') : '';
       if (a === 'sheet-done') finish();
