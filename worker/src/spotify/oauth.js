@@ -76,7 +76,10 @@ export async function finishAuth(env, url, { fetchImpl = fetch, nowMs = Date.now
     body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(url.origin) }),
   });
   if (!res.ok) {
-    log('spotify_exchange_failed', { status: res.status });
+    // Spotify's error code/description are safe to log (no tokens or secrets in them).
+    let reason = '';
+    try { const b = await res.json(); reason = [b.error, b.error_description].filter(Boolean).join(': ').slice(0, 200); } catch { /* not JSON */ }
+    log('spotify_exchange_failed', { status: res.status, reason });
     return { ok: false, error: 'exchange_failed' };
   }
   const tok = await res.json();
