@@ -30,7 +30,20 @@ Alerting (`alert: true`):
   Stephen fixes it at `/admin` → Google → Connect.
 
 Soft (shown, no email): `weather_stale`, `calendar_stale` (the cron will retry; the frame keeps
-showing the last good data), and `reflection_no_current_week` (publish the next guide).
+showing the last good data), `reflection_no_current_week` (publish the next guide), and the two
+freshness codes below (PLAN-v2.md §8.5). Both use the guide's coverage dates in Denver, not when it
+was published:
+
+- `reflection_weekly_stale`: no week has started yet, or the newest started week is more than 8 days
+  old (it flips 9 days after the week's start; for a long last week, 9 days after its final 7-day
+  stretch starts). Chief: publish the next guide.
+- `reflection_monthly_stale`: no guide has started yet, or the newest started guide began more than
+  `max(35, its length in days)` days ago. A guide that starts in the future (published early) doesn't
+  count until its start date.
+
+`reflection` in the JSON: `{currentWeek, weekly: {start, ageDays, stale}, monthly: {start, end,
+ageDays, stale}, publishedAt}`. `frame.build` is the build the frame last reported, so it shows whether
+the frame reloaded after a deploy.
 
 ## Email template
 
