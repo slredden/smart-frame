@@ -132,5 +132,54 @@ describe('health', () => {
     expect(h.frame.offline).toBe(false);
     expect(h.problems).not.toContain('frame_never_seen');
     expect(Object.keys(h).sort()).toEqual(['alert', 'build', 'calendar', 'frame', 'grants', 'now', 'ok', 'photos', 'problems', 'reflection', 'weather']);
+    expect(h.frame.build).toBe('b1');
+  });
+
+  it('flags a missing reflection as stale weekly and monthly, as soft problems', async () => {
+    const env = testEnv();
+    const device = await setup(env);
+    await route(req('/api/heartbeat', { method: 'POST', headers: { Authorization: 'Bearer ' + device.token }, body: JSON.stringify({ build: 'b1', uptimeSec: 60, jsErrors: [] }) }), env);
+    const h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
+    expect(h.problems).toEqual(expect.arrayContaining(['reflection_no_current_week', 'reflection_weekly_stale', 'reflection_monthly_stale']));
+    expect(h.reflection).toEqual({
+      currentWeek: null,
+      weekly: { start: null, ageDays: null, stale: true },
+      monthly: { start: null, end: null, ageDays: null, stale: true },
+      publishedAt: null,
+    });
+    // Soft: only the Google grants (not connected in tests) raise the alert, not the reflection.
+    expect(h.problems.filter((p) => p.startsWith('frame_'))).toEqual([]);
+  });
+
+  it('reports freshness from guide dates only, and goes weekly-stale on day 9', async () => {
+    const env = testEnv();
+    await setup(env);
+    vi.useFakeTimers({ now: Date.parse('2026-10-24T18:00:00Z'), toFake: ['Date'] });
+    try {
+      await route(req('/api/publish/reflection', { method: 'PUT', headers: { Authorization: 'Bearer ' + PUBLISH }, body: JSON.stringify(guide) }), env);
+      // 2026-10-26 (Denver) is day 1 of week 2.
+      vi.setSystemTime(Date.parse('2026-10-26T18:00:00Z'));
+      let h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
+      expect(h.problems).not.toContain('reflection_weekly_stale');
+      expect(h.problems).not.toContain('reflection_monthly_stale');
+      expect(h.reflection).toEqual({
+        currentWeek: 2,
+        weekly: { start: '2026-10-25', ageDays: 1, stale: false },
+        monthly: { start: '2026-10-18', end: '2026-11-14', ageDays: 8, stale: false },
+        publishedAt: '2026-10-24T18:00:00.000Z',
+      });
+      expect(JSON.stringify(h)).not.toContain('Synthetic');
+      // Past the guide: week 4 (11-08) is 8 days old on 11-16 and 9 on 11-17 (Denver, 8 PM MST).
+      vi.setSystemTime(Date.parse('2026-11-17T03:00:00Z'));
+      h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
+      expect(h.reflection.weekly).toEqual({ start: '2026-11-08', ageDays: 8, stale: false });
+      vi.setSystemTime(Date.parse('2026-11-18T03:00:00Z'));
+      h = await (await route(req('/api/health', auth(HEALTH)), env)).json();
+      expect(h.reflection.weekly).toEqual({ start: '2026-11-08', ageDays: 9, stale: true });
+      expect(h.problems).toContain('reflection_weekly_stale');
+      expect(h.problems).not.toContain('reflection_monthly_stale');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

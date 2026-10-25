@@ -48,3 +48,40 @@ export function cleanGuide(g) {
     weeks: g.weeks.map((w) => ({ n: w.n, start: w.start, end: w.end, theme: w.theme.trim(), practice: (w.practice || '').trim() })),
   };
 }
+
+export const WEEKLY_STALE_DAYS = 8;
+export const MONTHLY_STALE_DAYS = 35;
+
+/**
+ * Reflection freshness for /api/health (PLAN-v2.md §8.5). Dates only, never text.
+ * `guides` is every published guide ({guide:{start,end}, weeks:[{start,end}]}); `today` is the Denver ymd.
+ * - Newest guide: the greatest guide.start <= today (future-start guides are ignored).
+ * - Newest weekly: across all guides, the week with the greatest start <= today.
+ * - Weekly stale: no newest weekly, or today - anchor > 8, anchor = max(week.start, week.end - 6).
+ * - Monthly stale: no newest guide, or today - guide.start > max(35, guide.end - guide.start + 1).
+ */
+export function reflectionFreshness(guides, today) {
+  let guide = null;
+  let week = null;
+  for (const g of guides || []) {
+    if (!g || !g.guide) continue;
+    if (g.guide.start <= today && (!guide || g.guide.start > guide.start)) guide = g.guide;
+    for (const w of g.weeks || []) {
+      if (w.start <= today && (!week || w.start > week.start)) week = w;
+    }
+  }
+  let weekly = { start: null, ageDays: null, stale: true };
+  if (week) {
+    const shifted = addDays(week.end, -6);
+    const anchor = shifted > week.start ? shifted : week.start;
+    const age = daysBetween(anchor, today);
+    weekly = { start: week.start, ageDays: Math.max(0, age), stale: age > WEEKLY_STALE_DAYS };
+  }
+  let monthly = { start: null, end: null, ageDays: null, stale: true };
+  if (guide) {
+    const age = daysBetween(guide.start, today);
+    const guideDays = daysBetween(guide.start, guide.end) + 1;
+    monthly = { start: guide.start, end: guide.end, ageDays: age, stale: age > Math.max(MONTHLY_STALE_DAYS, guideDays) };
+  }
+  return { weekly, monthly };
+}
