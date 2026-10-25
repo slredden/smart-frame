@@ -3,7 +3,7 @@ import { eventTime, shortDate } from './format.js';
 import { startOfDayUtc } from '../../shared/time.js';
 
 /**
- * The "Next" line for screen A.
+ * The "Now/Next" line. Home's empty agenda row shows it as "Nothing else today. Next: …".
  * calendar: { today: {allDay:[{title}], timed:[{title,start,end}]}, tomorrowFirst: {title,start}|null }
  */
 export function nextLine(calendar, nowMs, tz) {
@@ -39,7 +39,7 @@ export function allDayLine(calendar) {
   return 'All day: ' + list.map((e) => e.title).join(' · ');
 }
 
-/** Agenda rows for screen B: remaining timed events, at most `max`, plus a '+N more' count. */
+/** Agenda rows for Home: remaining timed events, at most `max`, plus a '+N more' count. */
 export function agendaRows(calendar, nowMs, tz, max = 5) {
   const timed = (calendar && calendar.today && calendar.today.timed) || [];
   const upcoming = timed.filter((e) => Date.parse(e.end) > nowMs);

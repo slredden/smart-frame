@@ -20,25 +20,20 @@ body {
   display: none;
 }
 
-.screen-a #screen-a,
-.screen-b #screen-b,
+.screen-home #home,
 .screen-night #screen-night {
   display: block;
 }
 
-/* Photo stage: full width on A, left 794 px on B, hidden at night. */
+/* Photo stage: the left 794 px on Home, hidden at night. */
 .stage {
   position: absolute;
   top: 0;
   left: 0;
-  width: 1280px;
+  width: 794px;
   height: 800px;
   overflow: hidden;
   background: #111;
-}
-
-.screen-b .stage {
-  width: 794px;
 }
 
 .screen-night .stage {
@@ -68,11 +63,6 @@ body {
   object-fit: contain;
 }
 
-/* Landscape photos fill the screen on A; everything else is fitted over its blurred backdrop. */
-.screen-a .layer.l img {
-  object-fit: cover;
-}
-
 .caption {
   position: absolute;
   right: 20px;
@@ -82,29 +72,6 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
-.screen-a .caption {
-  right: 28px;
-  bottom: 20px;
-}
-
-/* Screen A card: bottom-left, 560 px wide. */
-.card {
-  position: absolute;
-  left: 40px;
-  bottom: 40px;
-  width: 560px;
-  min-height: 200px;
-  box-sizing: border-box;
-  padding: 26px 36px 24px;
-  border-radius: 28px;
-  background: rgba(14, 14, 16, 0.82);
-}
-
-.clock-row {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
 
 .time {
   font-size: 96px;
@@ -112,12 +79,6 @@ body {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -2px;
-}
-
-.clock-side {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .ampm {
@@ -158,33 +119,10 @@ body {
   text-overflow: ellipsis;
 }
 
-.next {
-  margin-top: 8px;
-  font-size: 28px;
-  color: rgba(255, 255, 255, 0.85);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .rule {
   height: 2px;
   margin: 16px 0 12px;
   background: rgba(255, 255, 255, 0.18);
-}
-
-.refl {
-  font-size: 22px;
-  line-height: 1.3;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.refl .refl-theme {
-  display: block;
-  color: rgba(255, 255, 255, 0.85);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .refl-practice {
@@ -200,12 +138,11 @@ body {
 }
 
 .stale:empty,
-.allday:empty,
-.next:empty {
+.allday:empty {
   display: none;
 }
 
-/* Screen B rail: right 486 px. */
+/* Home info column: right 486 px. */
 .rail {
   position: absolute;
   top: 0;
@@ -217,6 +154,12 @@ body {
   background: #0e0e10;
   display: flex;
   flex-direction: column;
+}
+
+.rail .clock-row.big {
+  display: flex;
+  align-items: center;
+  gap: 18px;
 }
 
 .rail .clock-row.big .time {
