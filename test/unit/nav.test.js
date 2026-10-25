@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, NO_IDLE, keepsAwake, initialState, railItems, viewEnabled, awake, screenAt, railShown, msUntilRailHides, tap, msUntilIdle } from '../../frame/src/nav.js';
+import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, NO_IDLE, keepsAwake, settle, resumeState, initialState, railItems, viewEnabled, awake, screenAt, railShown, msUntilRailHides, tap, msUntilIdle } from '../../frame/src/nav.js';
 import { minutesOfDay } from '../../shared/time.js';
 
 const IDLE = 10 * 60000;
@@ -163,8 +163,8 @@ describe('idle', () => {
     }
     // Still "not touched lately", so build and 3 AM reloads can wait for a quiet moment.
     expect(awake(p, IDLE + 1000, IDLE)).toBe(false);
-    // Night mode doesn't take over Photos either (decided 2026-10-25: leave it so).
-    expect(screenAt(p, m(23), DAYS, IDLE)).toBe('photos');
+    // Daytime only: at night the night clock takes over once idle (next test).
+    expect(screenAt(p, m(23), DAYS, IDLE)).toBe(NIGHT);
     // Leaving Photos brings the timeout back.
     let c = tap(p, DAYS, 'photos', null);
     c = tap(c, DAYS + 1000, 'photos', { rail: 'calendar' });
@@ -178,6 +178,69 @@ describe('idle', () => {
     }
     // Before any touch Photos isn't showing at all: the schedule decides.
     expect(screenAt({ view: 'photos', lastTouchMono: null, peekUntilMono: null }, m(12), DAYS, IDLE)).toBe(HOME);
+  });
+
+  it('night takes over Photos up at 21:59 once 22:00 has passed and the frame is idle', () => {
+    let p = tap(initialState(), 0, HOME, null);
+    p = tap(p, 1000, HOME, { rail: 'photos' }); // opened at 21:59, last touch at mono 1000
+    expect(screenAt(p, m(21) + 59, 1000, IDLE)).toBe('photos');
+    // 21:59 + 11 min (past the idle timeout) is still day: Photos stays.
+    expect(screenAt(p, m(21) + 59, 1000 + IDLE + 60000, IDLE)).toBe('photos');
+    // 22:00 arrives while still touched lately: Photos stays until the idle timeout, like any screen.
+    const touched = tap(p, 2000, 'photos', { control: true });
+    expect(screenAt(touched, m(22), 2000 + IDLE - 1, IDLE)).toBe('photos');
+    expect(screenAt(touched, m(22), 2000 + IDLE, IDLE)).toBe(NIGHT);
+    // Already idle when 22:00 passes: the night clock right away.
+    const t = 1000 + IDLE + 120000;
+    expect(screenAt(p, m(22), t, IDLE)).toBe(NIGHT);
+    // Night forgets Photos, so the morning is Home (not Photos again), as after any other screen.
+    const n = settle(p, NIGHT);
+    expect(n.view).toBe(HOME);
+    expect(screenAt(n, m(23), t, IDLE)).toBe(NIGHT);
+    expect(screenAt(n, m(6), t + 8 * 3600000, IDLE)).toBe(HOME);
+    // settle leaves daytime Photos and other screens alone.
+    expect(settle(p, 'photos')).toBe(p);
+    const c = { view: 'calendar', lastTouchMono: 0, peekUntilMono: null };
+    expect(settle(c, NIGHT)).toBe(c);
+  });
+
+  it('Photos opened at 23:00 goes to the night clock after the idle timeout, same as Calendar', () => {
+    for (const v of ['photos', 'calendar']) {
+      let s = tap(initialState(), 0, NIGHT, null); // wake at 23:00 → Home
+      s = tap(s, 1000, HOME, { rail: v });
+      expect(s.view).toBe(v);
+      expect(screenAt(s, m(23), 1000 + IDLE - 1, IDLE)).toBe(v);
+      expect(screenAt(s, m(23), 1000 + IDLE, IDLE)).toBe(NIGHT);
+      expect(screenAt(s, m(23), 1000 + 10 * IDLE, IDLE)).toBe(NIGHT);
+    }
+  });
+
+  it('daytime Photos still never idles, whatever the schedule', () => {
+    const p = { view: 'photos', lastTouchMono: 0, peekUntilMono: null };
+    for (const t of [IDLE, 10 * IDLE, 3 * 86400000]) {
+      expect(screenAt(p, m(6), t, IDLE)).toBe('photos');
+      expect(screenAt(p, m(12), t, IDLE)).toBe('photos');
+      expect(screenAt(p, m(21) + 59, t, IDLE)).toBe('photos');
+    }
+    const sched = { dayStart: m(8), nightStart: m(20) };
+    expect(screenAt(p, m(19), 10 * IDLE, IDLE, sched)).toBe('photos');
+    expect(screenAt(p, m(20), 10 * IDLE, IDLE, sched)).toBe(NIGHT);
+    expect(screenAt(p, m(7), 10 * IDLE, IDLE, sched)).toBe(NIGHT);
+  });
+
+  it('the reload restore brings Photos back by day only', () => {
+    const now = Date.parse('2026-10-25T18:00:00Z');
+    const saved = { view: 'photos', at: now - 1000 };
+    expect(resumeState(saved, now, m(12), 50, undefined)).toEqual({ view: 'photos', lastTouchMono: 50, peekUntilMono: null });
+    // Night (the 3 AM reload, or 22:00 on): skipped, so the night clock shows.
+    expect(resumeState(saved, now, m(3), 50)).toBe(null);
+    expect(resumeState(saved, now, m(22), 50)).toBe(null);
+    expect(resumeState(saved, now, m(5) + 59, 50)).toBe(null);
+    expect(resumeState(saved, now, m(9), 50, { dayStart: m(10), nightStart: m(20) })).toBe(null);
+    // Stale, missing or not a no-idle screen.
+    expect(resumeState({ view: 'photos', at: now - 11 * 60000 }, now, m(12), 50)).toBe(null);
+    expect(resumeState(null, now, m(12), 50)).toBe(null);
+    expect(resumeState({ view: 'calendar', at: now }, now, m(12), 50)).toBe(null);
   });
 
   it('uses Denver wall time on both DST change days', () => {
