@@ -796,8 +796,8 @@ a small custom MQTT-to-HTTP bridge, would be more of our own code to maintain.
 
 ### 11.2 Where Home Assistant runs (decision)
 
-**HA Container (Docker, host networking) on the Ubuntu box that runs Plex** (an old Mac), with
-`cloudflared` beside it.
+**HA Container (Docker, host networking) on the Ubuntu box that runs Plex, `reddencloud`** (an old
+Mac), with `cloudflared` beside it. The host facts (Q23) and the full runbook are in §11.9.
 
 Ruled out:
 - **MIGUEL**: not to be used (Stephen).
@@ -816,7 +816,7 @@ Facts from the HA docs:
 - The HA docs give **2 GB RAM and 2 vCPU** as the minimum (stated for the HA OS VM). There's no separate
   figure for Container, so we treat **≥ 2 GB RAM free beside Plex** as the floor.
 
-What Stephen checks on the Plex Mac (results → **Q23**):
+The checks that answered **Q23** (results in §11.9: Ubuntu 24.04.3, 2 cores, 7.5 GiB, 62 GB free, Docker 27.3.1):
 
 | Check | Command | Pass |
 | --- | --- | --- |
@@ -834,8 +834,8 @@ Ring needs outbound TCP 5228 for its push events (HA ring docs). That's normally
 ### 11.3 How the Worker reaches HA (decision)
 
 The frame talks **only to the Worker** (§11.8). The Worker reaches HA through **Workers VPC**: a VPC
-Service over a Cloudflare Tunnel. `cloudflared` on the Plex Mac makes an outbound tunnel, and the VPC
-Service points at HA's port 8123 (`127.0.0.1:8123` with host networking, or the Mac's LAN IP). The
+Service over a Cloudflare Tunnel. `cloudflared` on `reddencloud` makes an outbound tunnel, and the VPC
+Service points at HA's port 8123 at `127.0.0.1` (HA and `cloudflared` both use host networking, §11.9). The
 Worker calls it through a `vpc_services` binding. It's on the Free plan and free during the open beta
 (docs updated 2026-09/10, still beta). Standard Workers limits apply.
 
@@ -1066,6 +1066,283 @@ Frame-side steps for the move (need Chief/Stephen; device-side changes need Step
 - Spotify works the same from the office (cloud), with the Cast caveat in §11.5. Speakers at home can be
   controlled from the office, so the device list shows names.
 
+### 11.9 H runbook: the HA stack on `reddencloud`
+
+The host is the Plex box **`reddencloud`** (`.78` in the Omada wiki note). It answers Q23 (Chief, 2026-10-24):
+
+| Fact | Value | Against the floor (§11.2) |
+| --- | --- | --- |
+| OS | Ubuntu 24.04.3 LTS | Supported LTS |
+| CPU | 2 cores | At the HA docs' 2 vCPU minimum, and **shared with Plex** |
+| RAM | 7.5 GiB total, 3.4 GiB available, **1.8 GiB swap in use** | ≥ 2 GB available: passes, with the caps below |
+| Disk | 62 GB free on `/` | ≥ 10 GB: passes |
+| Docker | 27.3.1 | Engine ≥ 23.0.0: passes. **No Docker install step** |
+
+**Resource plan.** Every container gets a memory cap with `memswap_limit` equal to `mem_limit`.
+Per the Compose reference, that gives the container no swap. It also gets a hard `cpus` cap and a low
+`cpu_shares` (256; the default is 1024), so Plex wins whenever both want the CPU. The caps are estimates,
+and step 11 below checks them against `docker stats`.
+
+| Container | Image (pinned) | `mem_limit` | `cpus` | Why that cap |
+| --- | --- | --- | --- | --- |
+| homeassistant | `homeassistant/home-assistant:2026.10.4` | **1g** | 1.0 | Enough for HA core + MQTT + four camera entities with the minimal recorder below. No Ring integration, no add-ons, no Bluetooth or USB. If HA is OOM-killed, it restarts (`unless-stopped`) and step 11 raises the cap to 1.25g |
+| mosquitto | `eclipse-mosquitto:2.1.2-alpine` | 64m | 0.25 | Two clients and a few dozen topics. Mosquitto itself uses a few MB |
+| ring-mqtt | `tsightler/ring-mqtt:5.9.3` | 384m | 0.5 | Node.js plus snapshot JPEGs. No live streams are used (RTSP port 8554 isn't published) |
+| cloudflared | `cloudflare/cloudflared:2026.10.3` | 128m | 0.25 | One tunnel, a few requests a minute while Controls is open |
+
+The caps total about 1.6 GiB against 3.4 GiB available, which leaves about 1.8 GiB for Plex's
+transcode buffers and the page cache.
+
+The tags were checked on Docker Hub on 2026-10-24. Pull digests, for checking what's installed:
+- HA `sha256:23f4dfbb…e133`
+- Mosquitto `sha256:860aeb5d…bb0f`
+- ring-mqtt `sha256:4a4e0db4…f00a`
+- cloudflared `sha256:faa8e0a1…ff39`
+
+Tags rather than digests sit in the file, so updates stay a one-word edit.
+
+Compared with the HA docs' compose example, two things are deliberately left out:
+- `privileged: true`
+- the `/run/dbus` mount
+
+The docs include them for USB radios and Bluetooth, and nothing here uses either.
+
+**cloudflared: container, not a systemd service.**
+- The systemd install (`cloudflared service install <token>`) puts the token in the unit's `ExecStart`,
+  where `systemctl status` shows it (Cloudflare run-parameters docs). It also updates itself outside our
+  version pin.
+- The container is pinned, capped, and started and stopped with the rest of the stack. It reads
+  `TUNNEL_TOKEN` from a root-only env file.
+- The env file's value is visible to anyone with Docker access via `docker inspect`. On this box, that's
+  only Stephen.
+- It uses `network_mode: host`, so the VPC Service can point at `127.0.0.1:8123`.
+
+**Plex contention and swap:**
+- Plex keeps its default CPU weight, and the HA stack gets a low weight and hard caps. Everything here is
+  idle except a light poll, and the cameras are fetched only while the Controls screen is open.
+- **Prefer direct play in Plex.** Set clients to Original/Maximum quality. Two old cores can't transcode
+  1080p and do much else.
+- **ring-mqtt interval:** line-powered cameras snapshot every 30 s by default (Configuration-Details).
+  If step 11 shows load, set the interval per camera to 60–120 s. The frame shows each image's age
+  anyway.
+- **Swap:** 1.8 GiB in use may be old pages, not active swapping.
+  - Step 11 watches `vmstat` `si`/`so`; near zero is fine.
+  - The caps keep this stack out of swap.
+  - If `docker info` warns "No swap limit support", the swap caps don't apply, so tell Chief.
+
+**Files.** Everything lives under `/opt/smart-frame-ha` and is written by the commands below:
+- `compose.yaml` (step 2; the repo copy `docs/controls-compose.yaml` is identical)
+- `mosquitto/config/mosquitto.conf` (step 3)
+- `mosquitto/config/passwd` (step 4)
+- `ring-mqtt/config.json` (step 5)
+- `cloudflared.env` (steps 5 and 12)
+- HA's `configuration.yaml` (step 8)
+
+Secrets are only:
+- the two MQTT passwords, which are random and never shown except HA's, once, in step 10
+- the tunnel token
+- Ring's token, which ring-mqtt writes itself
+
+Every secret file is root-only (mode 600, or 700 for `passwd`) and never committed.
+
+`ring-mqtt/config.json` has this shape (ring-mqtt's minimal config). Step 5 fills in the password:
+
+```json
+{
+  "mqtt_url": "mqtt://mosquitto:1883",
+  "mqtt_user": "ringmqtt",
+  "mqtt_pass": "<RINGMQTT_PASSWORD>"
+}
+```
+
+**Stephen's commands, in order** (on `reddencloud`, in a terminal):
+
+```bash
+# 1. Folders
+sudo mkdir -p /opt/smart-frame-ha/{homeassistant,mosquitto/config,mosquitto/data,ring-mqtt}
+cd /opt/smart-frame-ha
+docker compose version                 # Compose v2 should print a version
+
+# 2. compose.yaml (no secrets)
+sudo tee /opt/smart-frame-ha/compose.yaml >/dev/null <<'EOF'
+name: smart-frame-ha
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: homeassistant/home-assistant:2026.10.4
+    network_mode: host                 # HA listens on :8123
+    environment:
+      TZ: America/Denver
+    volumes:
+      - /opt/smart-frame-ha/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    stop_grace_period: 60s             # lets HA close its database (HA docs)
+    mem_limit: 1g
+    memswap_limit: 1g                  # equal to mem_limit = no swap
+    cpus: 1.0
+    cpu_shares: 256
+    depends_on: [mosquitto]
+    logging: *logging
+
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:2.1.2-alpine
+    ports:
+      - "127.0.0.1:1883:1883"          # for HA on the host network only, not the LAN
+    volumes:
+      - /opt/smart-frame-ha/mosquitto/config:/mosquitto/config
+      - /opt/smart-frame-ha/mosquitto/data:/mosquitto/data
+    restart: unless-stopped
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.25
+    cpu_shares: 256
+    logging: *logging
+
+  ring-mqtt:
+    container_name: ring-mqtt
+    image: tsightler/ring-mqtt:5.9.3
+    ports:
+      - "55123:55123"                  # Ring login page; only runs while there's no token
+    volumes:
+      - /opt/smart-frame-ha/ring-mqtt:/data
+    restart: unless-stopped
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
+    cpu_shares: 256
+    depends_on: [mosquitto]
+    logging: *logging
+
+  cloudflared:
+    container_name: cloudflared
+    image: cloudflare/cloudflared:2026.10.3
+    network_mode: host                 # reaches HA at 127.0.0.1:8123
+    command: tunnel --no-autoupdate run
+    env_file: /opt/smart-frame-ha/cloudflared.env   # TUNNEL_TOKEN=…, mode 600, never committed
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
+    cpu_shares: 256
+    logging: *logging
+EOF
+
+# 3. Mosquitto config: auth on, anonymous off
+sudo tee /opt/smart-frame-ha/mosquitto/config/mosquitto.conf >/dev/null <<'EOF'
+listener 1883
+allow_anonymous false
+password_file /mosquitto/config/passwd
+persistence true
+persistence_location /mosquitto/data/
+log_dest stdout
+EOF
+
+# 4. Two random MQTT passwords (never printed), hashed in place by mosquitto_passwd -U
+HA_MQTT_PW=$(openssl rand -hex 16); RING_MQTT_PW=$(openssl rand -hex 16)
+printf 'homeassistant:%s\nringmqtt:%s\n' "$HA_MQTT_PW" "$RING_MQTT_PW" \
+  | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/mosquitto/config/passwd'
+sudo docker run --rm -v /opt/smart-frame-ha/mosquitto/config:/mosquitto/config \
+  eclipse-mosquitto:2.1.2-alpine mosquitto_passwd -U /mosquitto/config/passwd
+sudo chown 1883:1883 /opt/smart-frame-ha/mosquitto/config/passwd
+sudo chmod 0700 /opt/smart-frame-ha/mosquitto/config/passwd
+printf '%s\n' "$HA_MQTT_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ha-mqtt-password.txt'
+
+# 5. ring-mqtt config, and an empty tunnel env file (filled in at step 12)
+printf '{\n  "mqtt_url": "mqtt://mosquitto:1883",\n  "mqtt_user": "ringmqtt",\n  "mqtt_pass": "%s"\n}\n' \
+  "$RING_MQTT_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ring-mqtt/config.json'
+unset HA_MQTT_PW RING_MQTT_PW
+printf 'TUNNEL_TOKEN=\n' | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/cloudflared.env'
+
+# 6. Start everything except cloudflared, then check
+cd /opt/smart-frame-ha
+sudo docker compose pull
+sudo docker compose up -d homeassistant mosquitto ring-mqtt
+sudo docker compose ps                         # three containers running
+sudo docker compose logs --tail=50 mosquitto ring-mqtt
+sudo docker compose logs -f homeassistant      # wait until it settles, then Ctrl-C
+```
+
+7. **Onboarding:** from a computer on the home network, open **http://reddencloud:8123**, or the `.78`
+   address on port 8123 if the name doesn't resolve.
+   - Create the owner account and keep its password in the password manager.
+   - Home location: home. Time zone: America/Denver. Analytics: off.
+8. **Recorder** (HA recorder docs):
+   - Camera and image entities stay out of the database. Their state attributes carry short-lived
+     access tokens, and nothing needs their history.
+   - History is kept for 3 days.
+   - Commits are batched every 30 s to cut disk writes.
+
+   Add the snippet, then restart HA:
+
+   ```bash
+   sudo tee -a /opt/smart-frame-ha/homeassistant/configuration.yaml >/dev/null <<'EOF'
+
+   recorder:
+     purge_keep_days: 3
+     commit_interval: 30
+     exclude:
+       domains:
+         - camera
+         - image
+   EOF
+   cd /opt/smart-frame-ha && sudo docker compose restart homeassistant
+   ```
+9. **Ring login (2FA):** open **http://reddencloud:55123**, enter the Ring email and password, then the
+   2FA code. Then run `sudo docker compose logs --tail=50 ring-mqtt`, which should list the four cameras.
+   The page stops once the token is saved in `ring-mqtt/ring-state.json`. Treat that file as a secret,
+   since it's full Ring account access (ring-mqtt docs).
+10. **MQTT integration:** HA › Settings › Devices & services › Add integration › **MQTT**.
+    - Broker `127.0.0.1`, port `1883`, username `homeassistant`.
+    - Password: run `sudo cat /opt/smart-frame-ha/ha-mqtt-password.txt`, paste it, then `clear`.
+    - The four Ring cameras then appear as MQTT devices, each with a camera entity.
+    - If a battery camera has no image yet, that's expected (§11.6).
+11. **A day later, during a Plex transcode**, run:
+
+    ```bash
+    sudo docker stats --no-stream
+    free -h
+    vmstat 5 6
+    sudo docker inspect -f '{{.Name}} OOM={{.State.OOMKilled}} restarts={{.RestartCount}}' \
+      homeassistant mosquitto ring-mqtt
+    ```
+
+    Send Chief only the numbers. Pass:
+    - HA under ~700 MiB
+    - no `OOM=true`
+    - `si`/`so` near 0
+    - Plex playback smooth
+
+    Otherwise:
+    - raise HA's cap to 1.25g
+    - set ring-mqtt to 60–120 s
+    - prefer direct play
+12. **Tunnel** (§14 step 13): paste the token without echoing it, then start cloudflared.
+
+    ```bash
+    read -rsp 'Tunnel token: ' T; echo
+    printf 'TUNNEL_TOKEN=%s\n' "$T" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/cloudflared.env'; unset T
+    cd /opt/smart-frame-ha && sudo docker compose up -d cloudflared
+    sudo docker compose logs --tail=30 cloudflared   # look for "Registered tunnel connection"
+    ```
+
+    The VPC Service points at `127.0.0.1`, port 8123, http.
+    - If the Worker gets HTTP 400 from HA: since HA 2026.8, reverse-proxy settings are set in the UI, at
+      **Settings › System › Network › HTTP server**. Turn on "Trust X-Forwarded-For" and add `127.0.0.1`
+      to Trusted proxies.
+
+**Updates:** edit a tag in `compose.yaml`, then run `sudo docker compose pull && sudo docker compose up -d`.
+Chief proposes HA tag bumps monthly.
+
+**Backup:** `/opt/smart-frame-ha` holds everything, including the Ring and MQTT secrets, so back it up
+only to somewhere private.
+
 ## 12. v1.1 (calendar selection): shipped
 
 **Shipped** through [PR #2](https://github.com/slredden/smart-frame/pull/2) (`feat/v1.1-calendar-select`),
@@ -1102,7 +1379,7 @@ device.
 | **F Reflection freshness** (optional, standalone) | §8.5 `reflection_weekly_stale` / `reflection_monthly_stale` in `buildHealth`, runbook-health codes, and the §8.4 routine handed to Chief | 0.25 day | Unit tests for every case in §8.5. `/api/health` JSON shape in worker tests. No reflection text in health output or logs (canary test) |
 | **P1 Nav, Home taps, Calendar, Weather, Settings** | §2.6 A/B removal (first commit). §2 schedule, `nav.js`, the 8-slot rail with `features.*` flags, widget taps, hit sizes. **The batched Google scope change (§4.1) in the first deploy.** §7 Settings screen (schedule, night dim, idle, weather location, calendar selection), `settings` table, guards, `/admin` Settings and reset, geocoding proxy. §3 Calendar views, `/api/calendar`, full-window cache. §5 Weather screen, `/api/weather` | 3–3.5 days | `nav.js` tests: night tap → Home + rail and never a widget; widget tap → screen; off-widget tap → 30 s peek; idle → Home or night per schedule; DST dates 2026-11-01 and 2027-03-14. `schedule.test.js` rewritten (§2.6). Settings worker tests: device auth, unknown key/field, each bound, merge-not-replace, 61st write/hour → 429, `updated_by`, geocoding proxy (mocked, query not logged). Calendar tests as before. `normalizeWeather` tests (24 hourly, 10 daily, missing → null, Home `next3` unchanged), still exactly 1 cache + 1 meta write per weather refresh. OAuth test: the calendar grant asks for the three scopes, and `tasks_scope_missing` shows until reconnect. e2e (Chromium 106): Home, night, each widget tap, rail with 6 and 8 items (no label overflow, nothing in the Menu zone), Settings sheets, Calendar views, Weather, **hit-size check** (§2.4), no console errors. `check` (Chrome 106 compat, JS ≤ 60 KB gz). On-frame check (PLAN.md §10), including the soft keyboard. gitleaks clean |
 | **P1b Tasks, Alerts, Reflection, Photos** | §4 Tasks (lists table, `/api/tasks`, check-off if Q10 = `tasks`, Home "Due today" line). §9 Alerts (`alerts.js`, banner, chime, quiet hours, Settings sheet, `calendars.alert`). §8.1–8.2 Reflection screen, `reflection_guides` with migration from `id = 1`, retention 6. §6 Photos screen, favorite/hide | 3–4 days | Tasks worker tests (mocked Google): selection bounds (≤ 10, known ids), ≤ 37 subrequests per cron run, cache write skipped when unchanged, check-off only for cached ids in selected lists, a non-completed patch body refused, 401 without a device token, no titles in logs. `alerts.js` tests (§9.5). Reflection tests: migration, republish, 7th guide prunes, overlap, 401, no text in logs. Hidden photos leave the manifest. e2e: Tasks tabs and check-off with undo, alert banners on three screens and none at night, Reflection, Photos. On-frame check, including a **test chime**. gitleaks clean |
-| **H (prerequisite) Home Assistant for Ring** | [S] check the Plex Mac (§11.2, Q23), install Docker Engine if needed, bring up the compose stack (HA Container, Mosquitto, ring-mqtt, cloudflared; or HA's `ring` integration instead of ring-mqtt if Q22 picks R-A), onboard HA, Ring login + 2FA, MQTT integration, create the `frame` user and token. Agent writes `docs/runbook-controls.md` and `docs/controls-compose.yaml` (no secrets; the tunnel token and MQTT password stay in a `.env` on the Mac). [S] or Chief create the tunnel and VPC Service. Worker: `vpc_services` binding, `HA_TOKEN` as a GitHub secret copied by `worker-secrets.yml` (optional in `tools/set-worker-secrets.mjs` until set), "HA status" on `/admin` | 0.5 day agent + 1.5–3 h [S] | `/admin` shows "HA reachable, version x" and the four camera entities through the binding. No DNS records, and the tunnel can't be reached from the internet. The token appears nowhere but the GitHub/Worker secret (gitleaks, log canary test) |
+| **H (prerequisite) Home Assistant for Ring** | [S] runs the §11.9 runbook on `reddencloud` (Docker 27.3.1 already there): the compose stack (HA Container, Mosquitto, ring-mqtt, cloudflared, with memory and CPU caps; or HA's `ring` integration instead of ring-mqtt if Q22 picks R-A), onboarding, the minimal recorder, Ring login + 2FA, the MQTT integration, the `frame` user and token, and a next-day resource check. Agent copies §11.9 into `docs/runbook-controls.md` and `docs/controls-compose.yaml` (no secrets; the tunnel token, MQTT passwords and Ring token stay in root-only files on the box). [S] or Chief create the tunnel and VPC Service. Worker: `vpc_services` binding, `HA_TOKEN` as a GitHub secret copied by `worker-secrets.yml` (optional in `tools/set-worker-secrets.mjs` until set), "HA status" on `/admin` | 0.5 day agent + 1–2 h [S] | `/admin` shows "HA reachable, version x" and the four camera entities through the binding. No DNS records, and the tunnel can't be reached from the internet. The token appears nowhere but the GitHub/Worker secret (gitleaks, log canary test) |
 | **P2 Controls (Spotify + Ring)** | §11.5 Spotify: `worker/src/spotify/` OAuth on `/admin` (grant `spotify` in `grants`, `SPOTIFY_CLIENT_SECRET` via `worker-secrets.yml`), `/api/spotify/state` and actions, `spotify_reauth_due` in health. §11.6 cameras: `controls_cams` table + `/admin` editor, `/api/controls/state`, streaming `/api/controls/cam/:id`. §11.7 indoor setting and tap-to-reveal. §11.4 screen. `features.controls` on | 1.75–2.25 days | Worker tests (mocked Spotify and HA binding): the requested scopes are exactly the two; `state` checked on the callback; tokens encrypted and never logged; refresh uses Basic auth and keeps a rotated refresh token; 429 and `QUOTA_EXCEEDED` → backoff per `Retry-After`; 403 → "Premium needed"; transfer refused for an id not in the last device list; `spotify_reauth_due` from day 168. Cameras: unknown id → 404; indoor image → 403 while the setting is off; no POST path to HA; HA down → 503; images `no-store`; zero KV writes; no token or entity names in logs. e2e (Chromium 106, mock data): Controls with and without Spotify connected; polling stops when hidden, idle or at night; an image is fetched only when `updated` changes; indoor cover, reveal and auto-hide at 45 s; no camera on Home or in alerts. On the frame: move Spotify to a Connect speaker, pause, skip, volume; four snapshots refresh; an indoor reveal hides itself. gitleaks green |
 | **D Device brightness (with v1 P6; needs Stephen's OK)** | §10: `kiosk/framehw.patch` + `docs/runbook-kiosk.md` (origin check, portal-mode check, clamp). `backlight.js` wired to `FrameHW`, `brightness.js`, the Brightness settings sheet. [S]/[G] build and `adb install -r` at the frame only after Stephen's OK (Q13) | 1 day agent (0.5 kiosk + 0.5 frame) + ~30 min at the frame | `brightness.js` tests: night override, manual, auto curve, clamps, hysteresis, ramp, no bridge → no-op. e2e with a fake `window.FrameHW`: Brightness sheet, live lux line, read-only without the bridge. On the frame: the backlight follows a covered and lit sensor; at night it drops to `nightPct` and returns to the system value when the kiosk exits; on a non-frame page (e.g. the Wi-Fi portal) the bridge does nothing |
 
@@ -1113,10 +1390,10 @@ device.
 | F Freshness | – | 0.25 | 0.25 | 0 | |
 | P1 | 2.5–3 (all of Phase 1) | 2.5–3 (P1a) | **3–3.5** | **+0.5** | Weather moves in; 8-slot rail |
 | P1b | – | 1.75–2.25 | **3–4** | **+1.25 to +1.75** | Tasks (+1–1.25) and Alerts (+0.75–1) added; Weather moved out (−0.5) |
-| H | 0.5 | 0.5 | 0.5 | 0 | One integration instead of nine, but a compose file and runbook for HA Container. [S] time drops from 2–4 h to 1.5–3 h |
+| H | 0.5 | 0.5 | 0.5 | 0 | One integration instead of nine, but a compose file and runbook for HA Container (now written in §11.9). [S] time drops from 2–4 h to 1–2 h: Docker is already installed, and the commands are exact |
 | P2 Controls | 2–3 | 2–3 | **1.75–2.25** | **−0.25 to −0.75** | Scope cut to Spotify + Ring (2026-10-24). No lights, plugs, media players or HA service calls; direct Spotify OAuth adds a little. Inside P2: Spotify 0.75–1, cameras + privacy 0.5–0.75, screen + e2e 0.5 |
 | D Brightness | – | – | **1** | **+1** | New, tied to P6 |
-| **TOTAL after v1.1** | **5–6.5** | **7–9** | **9.5–11.5 agent days** | **+2.5** (+4.5 to +5 vs the original) | Was 9.75–12.25 before the Controls revision (−0.25 to −0.75, all from P2). Plus [S] time: 1.5–3 h for HA, ~15 min for the Spotify app, ~30 min for phase D at the frame, and minutes for the reconnect and the checks |
+| **TOTAL after v1.1** | **5–6.5** | **7–9** | **9.5–11.5 agent days** | **+2.5** (+4.5 to +5 vs the original) | Was 9.75–12.25 before the Controls revision (−0.25 to −0.75, all from P2). Plus [S] time: 1–2 h for HA, ~15 min for the Spotify app, ~30 min for phase D at the frame, and minutes for the reconnect and the checks |
 
 Breakdown inside P1 and P1b:
 
@@ -1160,26 +1437,27 @@ Breakdown inside P1 and P1b:
 6. **Phase D, with v1 P6 (only with Stephen's OK, Q13):** approve the kiosk rebuild with the `FrameHW`
    bridge. [S]/[G] at the frame: `adb install -r`, choose Home → **Always** again if Android asks, then a
    short calibration with the room dark and then bright.
-7. **Answer Q22–Q25** before H: Ring Protect and which cameras are on battery (decides ring-mqtt vs
-   HA's `ring`), the Plex Mac results, the office network, and the indoor-camera defaults.
-8. **Check the Plex Mac** (never the OpenClaw Mac) and send Chief the output (§11.2 table):
-   `cat /sys/class/dmi/id/product_name`, `lscpu`, `free -h`, `df -h /`, `lsb_release -a`,
-   `docker version`, and `uptime` during a Plex transcode.
-9. **Docker:** if `docker version` fails or shows Engine < 23, install Docker Engine from Docker's apt
-   repo (not Docker Desktop, not the snap), following `docs/runbook-controls.md`.
-10. **Bring up the stack** from `docs/controls-compose.yaml`: HA Container (host network,
-    `TZ=America/Denver`), Mosquitto (with a password), ring-mqtt and cloudflared. Open
-    `http://<plex-mac>:8123` on the home network and create the HA owner account.
-11. **Ring:** open ring-mqtt's page at `http://<plex-mac>:55123`, sign in to Ring and enter the 2FA code.
-    In HA, add the MQTT integration (pointing at Mosquitto) and check that the four camera entities appear.
-    Leave each battery camera's **Snapshot Capture** in the Ring app as it is, or lengthen it. (R-A
-    instead: add HA's Ring integration with login + 2FA, which needs Ring Protect.)
+7. **Answer Q22, Q24 and Q25** before H: Ring Protect and which cameras are on battery (decides ring-mqtt vs
+   HA's `ring`) (Q23 is answered), the office network, and the indoor-camera defaults.
+8. **Write the files on `reddencloud`** (§11.9 commands 1–5). Q23 is answered and Docker 27.3.1 is
+   already installed, so there's no check or install step. The commands create `/opt/smart-frame-ha`,
+   `compose.yaml`, the Mosquitto config with two random passwords, the ring-mqtt config and an empty
+   tunnel env file. No secret is typed or shown.
+9. **Start and onboard** (§11.9 commands 6–8): `docker compose up -d` for HA, Mosquitto and
+   ring-mqtt, check the logs, then open **http://reddencloud:8123** from the home network. Create the owner
+   account (time zone America/Denver), add the recorder snippet and restart HA.
+10. **Ring and MQTT** (§11.9 steps 9–10): sign in to Ring with 2FA at **http://reddencloud:55123**, then
+    add HA's MQTT integration (`127.0.0.1:1883`, user `homeassistant`) and check that the four cameras
+    appear. Leave each battery camera's **Snapshot Capture** in the Ring app as it is, or lengthen it.
+    (R-A instead: add HA's Ring integration with login + 2FA, which needs Ring Protect.)
+11. **Next day, during a Plex transcode** (§11.9 step 11): send Chief the `docker stats`, `free -h` and
+    `vmstat` numbers. Chief adjusts caps or the snapshot interval if needed.
 12. **HA `frame` user:** create a non-admin user `frame`, then a long-lived token for it. Store it as the
     GitHub secret `HA_TOKEN` yourself (`gh secret set HA_TOKEN` or the repo's Settings › Secrets), then
     tell Chief to run `worker-secrets.yml`. Never paste it into chat, files or logs.
-13. **Tunnel and VPC Service**, with Chief's guidance (needs Connectivity Directory Admin):
-    Zero Trust › Networks › Tunnels › create a tunnel, put its token in the Mac's `.env` for the
-    cloudflared container, then create a Workers VPC Service pointing at HA (`127.0.0.1:8123`). No public
+13. **Tunnel and VPC Service**, with Chief's guidance (needs Connectivity Directory Admin; box side is §11.9 step 12):
+    Zero Trust › Networks › Tunnels › create a tunnel, save its token with §11.9 step 12
+    (`cloudflared.env`, mode 600), then create a Workers VPC Service pointing at HA (`127.0.0.1:8123`). No public
     hostname and no DNS records.
 14. **Spotify developer app** (~15 min, signed in with the Premium account at
     https://developer.spotify.com/dashboard):
@@ -1223,6 +1501,8 @@ Breakdown inside P1 and P1b:
   - Q16 (bulbs), Q17 (Wemo stays on Alexa), Q19 (Samsung Frame TV left out), Q21 (Harmony unused):
     closed, because they're out of scope.
   - Q20: all four Ring cameras (front door, living room, basement, back porch). The indoor two follow §11.7.
+- **Q23, HA host facts** (Chief, 2026-10-24 7:11 PM MT): `reddencloud` (`.78`), Ubuntu 24.04.3, 2 cores,
+  7.5 GiB RAM (3.4 GiB available, 1.8 GiB swap in use), 62 GB free, Docker 27.3.1. Runbook in §11.9.
 
 The rest, renumbered:
 
@@ -1266,8 +1546,8 @@ The rest, renumbered:
   - Which of the four cameras are on **battery** (or solar), and which are wired?
   - Is **ring-mqtt** OK (recommended: current snapshots, no Protect needed)? The alternative is HA's
     `ring` integration, which shows only the last motion/ring frame and needs Protect (§11.6).
-- **Q23** Plex Mac results of the §11.2 checks: model, CPU, `free -h`, `df -h`, Ubuntu version, Docker,
-  and Plex load during a transcode. Is it wired and always on?
+- ~~**Q23** Plex Mac check results~~ Resolved: `reddencloud`, Ubuntu 24.04.3, 2 cores, 7.5 GiB RAM,
+  62 GB free, Docker 27.3.1 (§11.9).
 - **Q24** Office move:
   - Which city? Same time zone?
   - What kind of Wi-Fi: a password, a sign-in page, or an 802.1X login? The last is not recommended.
@@ -1289,9 +1569,22 @@ The rest, renumbered:
 - **Spotify Development Mode**: Premium is needed for the owner and for control. The 6-month refresh token
   means a reconnect twice a year (health code warns). The per-developer quota is shared, and Spotify has
   changed dev-mode rules twice since 2025. Cast speakers may be missing from the device list (§11.5).
-- **Old Plex Mac as the HA host**: aging hardware, Plex transcodes competing for CPU, and Ubuntu on Mac
-  hardware (sleep, power-on after outage). If it dies, only the Ring card is lost. HA's config is a
-  folder to back up.
+- **`reddencloud` is small and shared** (2 cores, 3.4 GiB available, 1.8 GiB swap already in use).
+  - Plex transcodes compete for CPU.
+  - HA could outgrow its 1 GB cap.
+  - The box could start swapping.
+  - It's old Mac hardware: sleep, power-on after an outage.
+
+  Mitigations (§11.9):
+  - memory caps with no swap for the stack
+  - low CPU weight and hard `cpus` caps
+  - the minimal recorder
+  - Plex direct play
+  - a longer ring-mqtt interval if needed
+  - a next-day `docker stats`/`vmstat` check
+
+  If the box dies, only the Ring card is lost. `/opt/smart-frame-ha` is the one folder to back up
+  privately.
 - **Office network**: a captive portal that comes back, blocked NTP, an 802.1X-only network, or a policy
   against unmanaged devices. §11.8 lists the checks, and the AiMOR lockdown must be confirmed first.
 - **CPU on the free plan**: 22-calendar merges and Controls state calls must stay under 10 ms CPU. Camera
@@ -1340,6 +1633,22 @@ The rest, renumbered:
   snapshot intervals (30 s line-powered; Snapshot Capture or 600 s low-power): https://github.com/tsightler/ring-mqtt/wiki/Configuration-Details ·
   low-power cameras, battery use, motion snapshots need Protect: https://github.com/tsightler/ring-mqtt/wiki/Frequently-Asked-Questions-(FAQ) ·
   HA MQTT camera: https://www.home-assistant.io/integrations/camera.mqtt/
+- HA Container compose (`stop_grace_period: 60s`, `network_mode: host`, `TZ`): https://www.home-assistant.io/installation/linux ·
+  recorder (`purge_keep_days` default 10, `commit_interval` default 5, `exclude.domains`): https://www.home-assistant.io/integrations/recorder/ ·
+  reverse-proxy settings in the UI since 2026.8: https://www.home-assistant.io/integrations/http/ ·
+  MQTT integration: https://www.home-assistant.io/integrations/mqtt/
+- Images and tags (checked 2026-10-24): https://hub.docker.com/r/homeassistant/home-assistant/tags ·
+  https://hub.docker.com/_/eclipse-mosquitto · https://hub.docker.com/r/tsightler/ring-mqtt/tags ·
+  https://hub.docker.com/r/cloudflare/cloudflared/tags · https://github.com/home-assistant/core/releases ·
+  https://github.com/tsightler/ring-mqtt/releases · https://github.com/cloudflare/cloudflared/releases
+- Mosquitto config (`allow_anonymous`, `password_file`, `persistence_location`, `log_dest`):
+  https://mosquitto.org/man/mosquitto-conf-5.html · `mosquitto_passwd -U`: https://mosquitto.org/man/mosquitto_passwd-1.html ·
+  image entrypoint (UID 1883): https://github.com/eclipse/mosquitto/blob/master/docker/2.1-alpine/docker-entrypoint.sh
+- cloudflared `TUNNEL_TOKEN`, `--token-file`, systemd unit, auto-update:
+  https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/ ·
+  image (`ENTRYPOINT cloudflared --no-autoupdate`, UID 65532): https://github.com/cloudflare/cloudflared/blob/master/Dockerfile
+- Compose `mem_limit`, `memswap_limit` (equal = no swap), `cpus`, `cpu_shares`, `env_file`:
+  https://docs.docker.com/reference/compose-file/services/
 - Workers Cache API (functional on custom domains): https://developers.cloudflare.com/workers/runtime-apis/cache/ ·
   Workers VPC limits: https://developers.cloudflare.com/workers-vpc/platform/limits/
 - Spotify Web API:
