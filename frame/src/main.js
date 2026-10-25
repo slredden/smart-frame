@@ -430,7 +430,10 @@ function scheduleRailHide() {
 /** Banner and toast buttons: handled before navigation; they count as a touch but don't show the rail. */
 function overlayTap(el, mono) {
   const act = el && el.closest ? el.closest('[data-act]') : null;
-  if (!act || !act.closest('#alerts, #toast')) return false;
+  if (!act) return false;
+  // By data-act as well as by place: a button detached by a redraw mid-tap still counts.
+  const kind = act.getAttribute('data-act');
+  if (!act.closest('#alerts, #toast') && kind !== 'toast-undo' && kind !== 'alert-dismiss' && kind !== 'alert-open') return false;
   // A banner or toast button is a control: it restarts a showing rail's 10 s, never shows it.
   const up = nav.railShown(ui, currentScreen(nowMs(), mono), mono);
   ui = Object.assign({}, ui, { lastTouchMono: mono, peekUntilMono: up ? mono + nav.RAIL_PEEK_S * 1000 : ui.peekUntilMono });
