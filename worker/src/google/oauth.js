@@ -7,8 +7,15 @@ import { log } from '../http.js';
 // calendar.events.readonly covers events.list on every calendar the account can see; listing the
 // calendars themselves (calendarList.list) needs calendar.calendarlist.readonly (v1.1).
 export const CALENDAR_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+// v2 (PLAN-v2.md §4.1, Q10): the calendar grant also asks for full Tasks access, so Stephen consents once
+// for everything P1b needs. It's optional at the callback: if he unticks it, the calendar still connects
+// and health shows the soft `tasks_scope_missing` until he reconnects.
+export const TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
 export const GRANTS = {
-  calendar: { scopes: ['https://www.googleapis.com/auth/calendar.events.readonly', CALENDAR_LIST_SCOPE] },
+  calendar: {
+    scopes: ['https://www.googleapis.com/auth/calendar.events.readonly', CALENDAR_LIST_SCOPE, TASKS_SCOPE],
+    required: ['https://www.googleapis.com/auth/calendar.events.readonly', CALENDAR_LIST_SCOPE],
+  },
   photos: { scopes: ['https://www.googleapis.com/auth/photospicker.mediaitems.readonly'] },
 };
 
@@ -54,9 +61,9 @@ async function saveTokens(env, grant, tok, nowMs, keepRefresh) {
     .prepare(
       `INSERT INTO grants (name, refresh_enc, access_enc, access_exp, scope, status, updated_at, last_error) VALUES (?, ?, ?, ?, ?, 'ok', ?, NULL)
        ON CONFLICT(name) DO UPDATE SET refresh_enc = excluded.refresh_enc, access_enc = excluded.access_enc, access_exp = excluded.access_exp,
-       scope = excluded.scope, status = 'ok', updated_at = excluded.updated_at, last_error = NULL`,
+       scope = COALESCE(excluded.scope, grants.scope), status = 'ok', updated_at = excluded.updated_at, last_error = NULL`,
     )
-    .bind(grant, refreshEnc, accessEnc, exp, tok.scope || GRANTS[grant].scopes.join(' '), nowIso(nowMs))
+    .bind(grant, refreshEnc, accessEnc, exp, tok.scope || null, nowIso(nowMs))
     .run();
 }
 
@@ -89,7 +96,7 @@ export async function finishAuth(env, url, { fetchImpl = fetch, nowMs = Date.now
   }
   const tok = await res.json();
   const scopes = String(tok.scope || '').split(/\s+/);
-  if (!GRANTS[grant].scopes.every((sc) => scopes.includes(sc))) return { ok: false, error: 'scope_missing', grant };
+  if (!(GRANTS[grant].required || GRANTS[grant].scopes).every((sc) => scopes.includes(sc))) return { ok: false, error: 'scope_missing', grant };
   if (!tok.refresh_token) return { ok: false, error: 'no_refresh_token', grant };
   await saveTokens(env, grant, tok, nowMs, null);
   log('oauth_connected', { grant });

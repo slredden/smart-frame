@@ -71,5 +71,13 @@ export function createClient(token, fetchImpl, base = '') {
   return {
     state: () => call('GET', '/api/state'),
     heartbeat: (info) => call('POST', '/api/heartbeat', info),
+    // v2 P1 screens (PLAN-v2.md §3, §5, §7)
+    calendar: (from, days) => call('GET', '/api/calendar?from=' + from + '&days=' + days),
+    weather: () => call('GET', '/api/weather'),
+    calendars: () => call('GET', '/api/calendars'),
+    syncCalendars: () => call('POST', '/api/calendars/sync'),
+    saveSelection: (ids) => call('PUT', '/api/calendars/selection', { selected: ids }),
+    saveSetting: (key, patch) => call('PUT', '/api/settings/' + key, patch),
+    searchPlaces: (q) => call('GET', '/api/settings/weather/search?q=' + encodeURIComponent(q)),
   };
 }

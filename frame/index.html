@@ -18,19 +18,25 @@
       <span class="ampm" data-bind="ampm"></span>
     </div>
     <div class="date" data-bind="longDate"></div>
-    <div class="weather-line big"><img class="wx-icon" data-bind="wxIcon" alt=""><span data-bind="wxNow"></span></div>
-    <div class="hilo" data-bind="hilo"></div>
-    <div class="days" data-bind="days"></div>
-    <div class="stale" data-bind="wxStale"></div>
+    <div class="widget" data-go="weather">
+      <div class="weather-line big"><img class="wx-icon" data-bind="wxIcon" alt=""><span data-bind="wxNow"></span></div>
+      <div class="hilo" data-bind="hilo"></div>
+      <div class="days" data-bind="days"></div>
+      <div class="stale" data-bind="wxStale"></div>
+    </div>
     <div class="rule"></div>
-    <div class="allday" data-bind="allDay"></div>
-    <div class="agenda-head">Today</div>
-    <div class="agenda" data-bind="agenda"></div>
-    <div class="stale" data-bind="calStale"></div>
+    <div class="widget agenda-widget" data-go="calendar">
+      <div class="allday" data-bind="allDay"></div>
+      <div class="agenda-head">Today</div>
+      <div class="agenda" data-bind="agenda"></div>
+      <div class="stale" data-bind="calStale"></div>
+    </div>
     <div class="rule"></div>
-    <div class="refl-label">This week</div>
-    <div class="refl-theme" data-bind="reflTheme"></div>
-    <div class="refl-practice" data-bind="reflPractice"></div>
+    <div class="widget" data-go="reflection">
+      <div class="refl-label">This week</div>
+      <div class="refl-theme" data-bind="reflTheme"></div>
+      <div class="refl-practice" data-bind="reflPractice"></div>
+    </div>
   </div>
 </section>
 
@@ -40,6 +46,13 @@
     <span class="ampm" data-bind="ampm"></span>
   </div>
 </section>
+
+<section id="view-calendar" class="screen view" aria-label="Calendar"></section>
+<section id="view-weather" class="screen view" aria-label="Weather"></section>
+<section id="view-settings" class="screen view" aria-label="Settings"></section>
+<div id="sheet" class="sheet"></div>
+
+<nav id="nav-rail" class="nav-rail" aria-label="Screens"></nav>
 
 <script type="module" src="./src/main.js"></script>
 </body>

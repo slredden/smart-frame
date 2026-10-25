@@ -1,7 +1,7 @@
 // GET /api/health for Chief's monitor (PLAN.md §13). No personal content.
 import { ymdIn } from '../../shared/time.js';
 import { getMeta } from './db.js';
-import { grantStatuses } from './google/oauth.js';
+import { grantStatuses, grantHasScope, TASKS_SCOPE } from './google/oauth.js';
 import { activeSet } from './photos.js';
 import { loadGuide } from './reflection.js';
 import { currentWeek, reflectionFreshness } from '../../shared/reflection.js';
@@ -20,6 +20,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
   const frameBuild = dev && dev.build ? dev.build : null;
   const frameAge = ageMin(lastHeartbeat, nowMs);
   const grants = await grantStatuses(db);
+  const tasksScope = await grantHasScope(db, 'calendar', TASKS_SCOPE);
   const set = await activeSet(db);
   const photoSync = await getMeta(db, 'photo_sync_at');
   const weatherOk = await getMeta(db, 'weather_ok_at');
@@ -42,6 +43,8 @@ export async function buildHealth(env, nowMs = Date.now()) {
   if (wAge === null || wAge > 60) problems.push('weather_stale');
   const cAge = ageMin(calendarOk, nowMs);
   if (grants.calendar.status === 'ok' && (cAge === null || cAge > 60)) problems.push('calendar_stale');
+  // Soft (no alert): the calendar grant predates v2's batched consent, so P1b's Tasks can't load yet.
+  if (grants.calendar.status === 'ok' && !tasksScope) problems.push('tasks_scope_missing');
   if (!week) problems.push('reflection_no_current_week');
   if (fresh.weekly.stale) problems.push('reflection_weekly_stale');
   if (fresh.monthly.stale) problems.push('reflection_monthly_stale');
@@ -54,7 +57,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
     build: env.BUILD_ID || 'dev',
     now: new Date(nowMs).toISOString(),
     frame: { lastHeartbeat, ageMinutes: frameAge, offline, build: frameBuild },
-    grants: { calendar: { status: grants.calendar.status }, photos: { status: grants.photos.status } },
+    grants: { calendar: { status: grants.calendar.status, tasksScope }, photos: { status: grants.photos.status } },
     photos: { lastSync: photoSync, count: set ? set.count : 0 },
     weather: { lastFetch: weatherOk, ageMinutes: wAge },
     calendar: { lastFetch: calendarOk },

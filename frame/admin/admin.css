@@ -9,3 +9,7 @@ code { word-break: break-all; }
 .cal-list { list-style: none; padding: 0; }
 .cal-list li { padding: 3px 0; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin: 0 6px; vertical-align: middle; border: 1px solid #111; }
+.set-table { border-collapse: collapse; width: 100%; font-size: 15px; }
+.set-table td { border-top: 1px solid #ccc; padding: 4px 8px 4px 0; vertical-align: top; }
+.wx-results { list-style: none; padding: 0; }
+.wx-results li { padding: 3px 0; }

@@ -11,8 +11,12 @@ Calendar events, Denver weather from Open-Meteo, and the current week's private 
 - At night a touch wakes the frame to Home. After 10 idle minutes it goes back to its schedule.
 - v1.2 (2026-10-24) removed v1's full-bleed layout A and the A/B tap swap. The v2 screens and menu rail
   are planned in [PLAN-v2.md](PLAN-v2.md).
+- v2 P1 (2026-10-24): tapping Home's weather or agenda opens the Weather (24 h, 10 days) or Calendar
+  (Agenda, Day, Week) screen; any other tap shows the menu rail for 30 s. Settings (schedule, night dim,
+  idle timeout, weather place, calendars) live in D1 and can be changed on the frame or on /admin.
+  Screens not built yet stay off the rail (`features` in `/api/state`).
 
-**Status:** being built. Not deployed: deploys are off until the `DEPLOY_ENABLED` repo variable is set.
+**Status:** deployed on every push to `main` (see [docs/runbook-deploy.md](docs/runbook-deploy.md)).
 Runs on the Cloudflare Workers Free plan (D1 + KV, no R2) at the default `workers.dev` address.
 
 ## Develop
@@ -24,7 +28,7 @@ npm run build       # frame + admin into frame/dist
 npm run check       # Chrome 106 compat check + lint + bundle size
 npm run dev:frame   # frame shell with mock data at http://localhost:5173/?mock=1
 npx @puppeteer/browsers install chromium@1036826 --path test/e2e/.browsers   # once
-npm run e2e         # Chromium 106 screenshots of A, B and night into test/e2e/out/
+npm run e2e         # Chromium 106 screenshots and tap tests of every screen into test/e2e/out/
 ```
 
 Runbooks for Chief and for operating the frame are in [docs/](docs/).

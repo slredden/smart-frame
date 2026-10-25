@@ -6,8 +6,11 @@ import { startPicker, stepPicker } from './google/picker.js';
 import { buildHealth } from './health.js';
 import { syncCalendarList, listCalendars, setSelection, refreshCalendar, MAX_SELECTED } from './google/calendar.js';
 import { publishReflection } from './reflection.js';
+import { settingsWithHistory, putSetting, resetSettings } from './settings.js';
+import { refreshWeather, searchPlaces } from './weather.js';
 
-export async function handleAdmin(request, env, url, admin) {
+export async function handleAdmin(request, env, url, admin, deps = {}) {
+  const fetchImpl = deps.fetchImpl || fetch;
   const path = url.pathname;
   const method = request.method;
   const db = env.FRAME_DB;
@@ -69,6 +72,27 @@ export async function handleAdmin(request, env, url, admin) {
     // Refresh now so the frame picks the new selection up on its next poll, not the next cron.
     const c = await refreshCalendar(env);
     return json({ ok: true, selected: r.selected, refreshed: !!c.ok });
+  }
+
+  // v2 frame settings (PLAN-v2.md §7.2): view with history, reset, and the weather fallback.
+  if (path === '/admin/api/settings' && method === 'GET') return json({ settings: await settingsWithHistory(env) });
+  if (path === '/admin/api/settings/reset' && method === 'POST') {
+    await resetSettings(env);
+    await refreshWeather(env, { fetchImpl });
+    return json({ ok: true, settings: await settingsWithHistory(env) });
+  }
+  if (path === '/admin/api/settings/weather/search' && method === 'GET') {
+    const r = await searchPlaces(url.searchParams.get('q'), { fetchImpl });
+    return r.ok ? json({ places: r.places }) : error(r.error === 'bad_query' ? 400 : 502, r.error);
+  }
+  m = /^\/admin\/api\/settings\/([a-z]{1,20})$/.exec(path);
+  if (m && method === 'PUT') {
+    const body = await readJson(request, 4096);
+    if (body.error) return error(400, body.error);
+    const r = await putSetting(env, m[1], body.value, 'admin:' + admin.email);
+    if (!r.ok) return error(400, r.error);
+    if (m[1] === 'weather') await refreshWeather(env, { force: true, fetchImpl });
+    return json({ ok: true, settings: await settingsWithHistory(env) });
   }
 
   // Fallback form for the reflection (same validation as Chief's publish endpoint).

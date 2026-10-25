@@ -20,7 +20,8 @@
 
   <section>
     <h2>Google</h2>
-    <p>Calendar uses the Workspace account. Photos uses the personal Google account.</p>
+    <p>Calendar uses the Workspace account. Photos uses the personal Google account.
+      Connect calendar also asks for Google Tasks (read and check off), for the frame's Tasks screen.</p>
     <p>
       <a class="button" href="./oauth/start?grant=calendar">Connect calendar</a>
       <a class="button" href="./oauth/start?grant=photos">Connect photos</a>
@@ -41,6 +42,18 @@
       <ul id="cal-list" class="cal-list"></ul>
       <button type="submit">Save selection</button>
     </form>
+  </section>
+
+  <section>
+    <h2>Frame settings</h2>
+    <p>Changed on the frame (Settings on its rail). Shown here with who changed each one last.</p>
+    <table id="set-table" class="set-table"></table>
+    <form id="wx-form">
+      <label>Weather location <input id="wx-q" maxlength="60" placeholder="City name"></label>
+      <button type="submit">Search</button>
+    </form>
+    <ul id="wx-results" class="wx-results"></ul>
+    <p><button id="set-reset" type="button">Reset frame settings to defaults</button> <span id="set-out"></span></p>
   </section>
 
   <section>

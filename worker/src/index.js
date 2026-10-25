@@ -9,8 +9,11 @@ import { buildHealth } from './health.js';
 import { servePhoto } from './photos.js';
 import { publishReflection } from './reflection.js';
 import { handleAdmin } from './admin.js';
-import { refreshWeather } from './weather.js';
-import { refreshCalendar } from './google/calendar.js';
+import { refreshWeather, searchPlaces, WEATHER_KEY } from './weather.js';
+import { refreshCalendar, calendarWindow, listCalendars, setSelection, syncCalendarList, cachedCalendar, MAX_SELECTED, MAX_WINDOW_DAYS } from './google/calendar.js';
+import { getSettings, putSetting, overWriteBudget } from './settings.js';
+import { getCache } from './db.js';
+import { ymdIn } from '../../shared/time.js';
 
 export async function route(request, env, deps = {}) {
   const url = new URL(request.url);
@@ -56,7 +59,7 @@ export async function route(request, env, deps = {}) {
       await recordHeartbeat(db, device.id, body.value || {});
       return empty(204);
     }
-    return notFound();
+    return deviceApi(request, env, url, device, deps);
   }
 
   if (path === '/admin' || path.startsWith('/admin/')) {
@@ -64,7 +67,7 @@ export async function route(request, env, deps = {}) {
     if (!admin) return forbidden();
     if (path === '/admin') return redirect('/admin/');
     await ensureSchema(db);
-    const r = await handleAdmin(request, env, url, admin);
+    const r = await handleAdmin(request, env, url, admin, deps);
     if (r) return r;
     if (path.startsWith('/admin/api/')) return notFound();
     // The admin page itself (static), only after Access passes.
@@ -76,6 +79,74 @@ export async function route(request, env, deps = {}) {
   }
 
   return env.ASSETS.fetch(request);
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+const HOUR_MS = 3600000;
+
+/** v2 P1 device routes: Calendar, Weather and Settings screens (PLAN-v2.md §3, §5, §7). */
+async function deviceApi(request, env, url, device, deps) {
+  const path = url.pathname;
+  const method = request.method;
+  const db = env.FRAME_DB;
+  const tz = env.TIME_ZONE || 'America/Denver';
+  const fetchImpl = deps.fetchImpl || fetch;
+  const nowMs = deps.nowMs || Date.now();
+
+  if (path === '/api/calendar' && method === 'GET') {
+    const from = url.searchParams.get('from') || ymdIn(nowMs, tz);
+    const days = Number(url.searchParams.get('days') || 14);
+    if (!YMD_RE.test(from) || !Number.isInteger(days) || days < 1 || days > MAX_WINDOW_DAYS) return error(400, 'bad_window');
+    const cal = await cachedCalendar(db);
+    const win = calendarWindow(cal && cal.value, from, days, tz);
+    return json(Object.assign({ fetchedAt: cal ? cal.fetchedAt : null, stale: !cal || nowMs - Date.parse(cal.fetchedAt) > HOUR_MS }, win));
+  }
+  if (path === '/api/weather' && method === 'GET') {
+    const w = await getCache(db, WEATHER_KEY);
+    if (!w) return json({ weather: null });
+    return json({ weather: Object.assign({ fetchedAt: w.fetchedAt, stale: nowMs - Date.parse(w.fetchedAt) > HOUR_MS }, w.value) });
+  }
+  if (path === '/api/calendars' && method === 'GET') {
+    return json({ calendars: await listCalendars(db), max: MAX_SELECTED });
+  }
+  if (path === '/api/settings/weather/search' && method === 'GET') {
+    if (await overWriteBudget(db, device.id, nowMs)) return error(429, 'too_many_writes');
+    const r = await searchPlaces(url.searchParams.get('q'), { fetchImpl });
+    return r.ok ? json({ places: r.places }) : error(r.error === 'bad_query' ? 400 : 502, r.error);
+  }
+
+  // Everything below writes, so it counts against the device's hourly budget.
+  const writes = method === 'PUT' || method === 'POST';
+  const settingMatch = /^\/api\/settings\/([a-z]{1,20})$/.exec(path);
+  const isWrite =
+    writes && (settingMatch || path === '/api/calendars/selection' || path === '/api/calendars/sync');
+  if (!isWrite) return notFound();
+  if (await overWriteBudget(db, device.id, nowMs)) return error(429, 'too_many_writes');
+  const by = 'frame:' + device.id;
+
+  if (settingMatch && method === 'PUT') {
+    const body = await readJson(request, 4096);
+    if (body.error) return error(400, body.error);
+    const key = settingMatch[1];
+    const r = await putSetting(env, key, body.value, by, nowMs);
+    if (!r.ok) return error(400, r.error);
+    // A new weather location gets fresh weather now, not at the next cron.
+    if (key === 'weather') await refreshWeather(env, { force: true, fetchImpl, nowMs });
+    return json({ ok: true, settings: await getSettings(env) });
+  }
+  if (path === '/api/calendars/selection' && method === 'PUT') {
+    const body = await readJson(request, 16384);
+    if (body.error) return error(400, body.error);
+    const r = await setSelection(db, body.value && body.value.selected);
+    if (!r.ok) return error(400, r.error);
+    const c = await refreshCalendar(env, { fetchImpl, nowMs });
+    return json({ ok: true, selected: r.selected, refreshed: !!c.ok, calendars: await listCalendars(db) });
+  }
+  if (path === '/api/calendars/sync' && method === 'POST') {
+    const r = await syncCalendarList(env, { fetchImpl, nowMs });
+    return r.ok ? json({ calendars: await listCalendars(db), max: MAX_SELECTED }) : error(409, r.error);
+  }
+  return notFound();
 }
 
 export async function runCron(env, nowMs = Date.now(), fetchImpl = fetch) {

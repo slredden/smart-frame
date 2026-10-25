@@ -8,7 +8,13 @@ import { nextLine, allDayLine, agendaRows } from './agenda.js';
 import { takeToken, createClient, backoffMs, saveSnapshot, loadSnapshot } from './api.js';
 import { buildChanged, quietMoment, dailyReloadDue, RELOAD_KEY } from './version.js';
 import { createSlideshow } from './photos.js';
-import { mockState } from './mock.js';
+import { mockState, createMockClient } from './mock.js';
+import { mergeSettings } from '../../shared/settings.js';
+import { createRail } from './rail.js';
+import { createSheet } from './sheet.js';
+import { createCalendarScreen } from './screens/calendar.js';
+import { createWeatherScreen } from './screens/weather.js';
+import { createSettingsScreen, openCalendarsSheet } from './screens/settings.js';
 
 const BUILD = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev';
 const TZ = 'America/Denver';
@@ -16,9 +22,12 @@ const params = new URLSearchParams(location.search);
 const MOCK = params.get('mock') === '1';
 const ICON_BASE = './icons/';
 
-// Mock-only test hooks: freeze the clock (?at=ISO) and force a screen (?screen=home|night).
+// Mock-only test hooks: freeze the clock (?at=ISO), force Home or night (?screen=home|night), open
+// a screen at boot (?screen=calendar|weather|settings), peek the rail (?peek=1), show all 8 rail
+// items (?rail=all).
 const frozenAt = MOCK && params.get('at') ? Date.parse(params.get('at')) : NaN;
 const forcedScreen = MOCK ? params.get('screen') : null;
+const ALL_FEATURES = { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: true };
 const bootMono = performance.now();
 
 let clockOffset = 0; // server-corrected offset when the frame clock is off by > 2 min
@@ -27,15 +36,18 @@ const nowMs = () => (isFinite(frozenAt) ? frozenAt + (performance.now() - bootMo
 let data = loadSnapshot(localStorage);
 let ui = nav.initialState();
 let lastScreen = '';
+let lastRail = null;
 let lastMinute = -1;
 let paired = true;
 let serverBuild = '';
 
+const settings = () => mergeSettings(data && data.settings);
+const features = () => (MOCK && params.get('rail') === 'all' ? ALL_FEATURES : (data && data.features) || {});
+
 function idleMs() {
   const q = Number(params.get('idle'));
   if (q > 0) return q * 60000;
-  const c = data && data.config && Number(data.config.idleMinutes);
-  return c > 0 ? c * 60000 : 10 * 60000;
+  return settings().idle.minutes * 60000;
 }
 
 function intervalMs() {
@@ -55,6 +67,8 @@ function setSrc(k, v) {
   for (const el of binds[k] || []) if (el.getAttribute('src') !== v) el.setAttribute('src', v);
 }
 
+const rail = createRail(document.getElementById('nav-rail'));
+
 const slideshow = createSlideshow(document.getElementById('stage'), {
   intervalMs,
   onError: () => schedulePoll(1000),
@@ -69,7 +83,11 @@ function renderClock(ms) {
   const step = Math.floor(minutesOfDay(ms, TZ) / 10);
   const dx = ((step % 3) - 1) * 8;
   const dy = ((Math.floor(step / 3) % 3) - 1) * 8;
-  for (const el of binds.nightClock || []) el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+  for (const el of binds.nightClock || []) {
+    el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    el.style.opacity = String(settings().night.dimPct / 100);
+  }
+  rail.setClock(time + ' ' + ampm);
 }
 
 function renderWeather(ms) {
@@ -163,22 +181,36 @@ function renderAll() {
 function currentScreen(ms, mono) {
   if (forcedScreen === 'home') return nav.HOME;
   if (forcedScreen === 'night') return nav.NIGHT;
-  return nav.screenAt(ui, minutesOfDay(ms, TZ), mono, idleMs());
+  const s = nav.screenAt(ui, minutesOfDay(ms, TZ), mono, idleMs(), settings().schedule);
+  return s === nav.HOME || s === nav.NIGHT || nav.viewEnabled(s, features()) ? s : nav.HOME;
 }
 
 function applyScreen(screen) {
-  if (screen === lastScreen) return;
+  const mono = performance.now();
+  const railOn = nav.railShown(ui, screen, mono);
+  if (screen === lastScreen && railOn === lastRail) return;
+  const changed = screen !== lastScreen;
   lastScreen = screen;
-  document.body.className = 'screen-' + screen;
+  lastRail = railOn;
+  document.body.className = 'screen-' + screen + (railOn ? ' rail-on' : '');
+  rail.setFeatures(features());
+  rail.setActive(screen);
+  if (!changed) return;
+  if (ctx.sheet.isOpen()) ctx.sheet.close();
   setBacklight(screen === nav.NIGHT ? 'night' : 'day');
-  if (screen === nav.NIGHT) slideshow.stop();
-  else slideshow.start();
+  // Photos only run behind Home; every other screen covers them.
+  if (screen === nav.HOME) slideshow.start();
+  else slideshow.stop();
+  const scr = screens[screen];
+  if (scr) scr.show();
 }
 
 function tick() {
   const ms = nowMs();
   const mono = performance.now();
   applyScreen(currentScreen(ms, mono));
+  const scr = screens[lastScreen];
+  if (scr && scr.tick) scr.tick();
   const minute = Math.floor(ms / 60000);
   if (minute !== lastMinute) {
     lastMinute = minute;
@@ -212,15 +244,9 @@ function maybeReload(ms, mono) {
   }
 }
 
-attachTaps(document.body, () => {
-  const mono = performance.now();
-  ui = nav.tap(ui, mono);
-  applyScreen(currentScreen(nowMs(), mono));
-});
-
 // ----- data polling -----
 const token = MOCK ? null : takeToken(location, localStorage, history);
-const client = createClient(token, (u, i) => fetch(u, i));
+const client = MOCK ? createMockClient(nowMs, TZ) : createClient(token, (u, i) => fetch(u, i));
 let pollTimer = 0;
 let failures = 0;
 
@@ -232,7 +258,9 @@ function schedulePoll(ms) {
 async function poll() {
   if (MOCK) {
     data = mockState(nowMs(), TZ);
+    lastRail = null;
     renderAll();
+    applyScreen(currentScreen(nowMs(), performance.now()));
     schedulePoll(60000);
     return;
   }
@@ -251,7 +279,9 @@ async function poll() {
     const drift = Date.parse(data.serverTime) - Date.now();
     clockOffset = Math.abs(drift) > 120000 ? drift : 0;
     saveSnapshot(localStorage, data);
+    lastRail = null;
     renderAll();
+    applyScreen(currentScreen(nowMs(), performance.now()));
     schedulePoll(60000);
   } else if (res.status === 401) {
     paired = false;
@@ -262,6 +292,75 @@ async function poll() {
     schedulePoll(backoffMs(failures));
   }
 }
+
+// ----- v2 screens (PLAN-v2.md §2-§7) -----
+const ctx = {
+  client,
+  tz: TZ,
+  now: nowMs,
+  settings,
+  sheet: null,
+  /** PUT one setting; true, or the error code. The reply carries all settings, applied at once. */
+  async saveSetting(key, patch) {
+    const r = await client.saveSetting(key, patch);
+    if (r.status === 200 && r.data && r.data.ok) {
+      data = Object.assign({}, data || {}, { settings: r.data.settings });
+      if (!MOCK) saveSnapshot(localStorage, data);
+      lastMinute = -1;
+      tick();
+      if (screens.settings) screens.settings.render();
+      if (key === 'weather') {
+        screens.weather.invalidate();
+        schedulePoll(500);
+      }
+      return true;
+    }
+    return (r.data && r.data.error) || 'offline';
+  },
+  openCalendars() {
+    openCalendarsSheet(ctx, (d) => {
+      screens.settings.calendarsSaved(d);
+      screens.calendar.invalidate();
+      schedulePoll(500);
+    });
+  },
+};
+ctx.sheet = createSheet(document.getElementById('sheet'));
+const screens = {
+  calendar: createCalendarScreen(document.getElementById('view-calendar'), ctx),
+  weather: createWeatherScreen(document.getElementById('view-weather'), ctx),
+  settings: createSettingsScreen(document.getElementById('view-settings'), ctx),
+};
+
+function goTarget(el) {
+  if (!el || !el.closest) return null;
+  const r = el.closest('[data-rail]');
+  if (r) return { rail: r.getAttribute('data-rail') };
+  const g = el.closest('[data-go]');
+  const v = g && g.getAttribute('data-go');
+  return v && nav.viewEnabled(v, features()) ? { go: v } : null;
+}
+
+attachTaps(document.body, (el) => {
+  const mono = performance.now();
+  const before = currentScreen(nowMs(), mono);
+  const target = goTarget(el);
+  ui = nav.tap(ui, mono, before, target);
+  const after = currentScreen(nowMs(), mono);
+  applyScreen(after);
+  // A tap on a control inside the screen that was already showing (not a rail switch).
+  if (after === before && !(target && target.rail)) {
+    if (ctx.sheet.isOpen() && el.closest && el.closest('#sheet')) ctx.sheet.onTap(el);
+    else {
+      const act = el && el.closest ? el.closest('[data-act]') : null;
+      const scr = screens[after];
+      if (act && scr && scr.onTap) scr.onTap(act, act.getAttribute('data-act'));
+    }
+  }
+});
+
+if (MOCK && forcedScreen && screens[forcedScreen]) ui = { view: forcedScreen, lastTouchMono: performance.now(), peekUntilMono: null };
+if (MOCK && params.get('peek') === '1') ui = { view: nav.HOME, lastTouchMono: performance.now(), peekUntilMono: performance.now() + nav.RAIL_PEEK_S * 1000 };
 
 const jsErrors = [];
 window.addEventListener('error', (ev) => {
