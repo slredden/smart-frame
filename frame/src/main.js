@@ -261,7 +261,9 @@ function applyScreen(screen) {
 function tick() {
   const ms = nowMs();
   const mono = performance.now();
-  applyScreen(currentScreen(ms, mono));
+  const screen = currentScreen(ms, mono);
+  ui = nav.settle(ui, screen);
+  applyScreen(screen);
   const scr = screens[lastScreen];
   if (scr && scr.tick) scr.tick();
   runAlerts();
@@ -277,7 +279,7 @@ function tick() {
 const RESUME_KEY = 'sf.resumeView';
 function reloadKeepingView() {
   try {
-    if (nav.keepsAwake(ui.view) && lastScreen === ui.view) localStorage.setItem(RESUME_KEY, JSON.stringify({ view: ui.view, at: Date.now() }));
+    if (nav.keepsAwake(ui.view) && lastScreen === ui.view && lastScreen !== nav.NIGHT) localStorage.setItem(RESUME_KEY, JSON.stringify({ view: ui.view, at: Date.now() }));
   } catch {
     // ignore
   }
@@ -292,8 +294,10 @@ function resumeView() {
   } catch {
     r = null;
   }
-  if (!r || !nav.keepsAwake(r.view) || !(Math.abs(Date.now() - r.at) < 10 * 60000)) return;
-  ui = { view: r.view, lastTouchMono: performance.now(), peekUntilMono: null };
+  // Never at night: the 3 AM reload on Photos must not bring Photos back over the night clock.
+  const ms = Date.now();
+  const next = nav.resumeState(r, ms, minutesOfDay(ms, TZ), performance.now(), settings().schedule);
+  if (next) ui = next;
 }
 
 function maybeReload(ms, mono) {

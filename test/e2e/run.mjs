@@ -833,6 +833,18 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   await page.close();
 }
 
+// Photos at night: the night clock takes over once idle, like any other screen (2026-10-25).
+// Up at 21:59:56 MDT: still Photos at the start, the night clock after 22:00 and the 3 s idle.
+for (const [name, at] of [['photos 22:00', '2026-10-25T03:59:56Z'], ['photos at night', '2026-10-25T05:10:00Z']]) {
+  const page = await open({ screen: 'photos', at, extra: '&idle=0.05' });
+  expectBody(name + ' start', await bodyOf(page), 'screen-photos');
+  await sleep(6000);
+  expectBody(name, await bodyOf(page), 'screen-night');
+  console.log(name.padEnd(18), 'ok');
+  if (page.errors.length) failures.push(name + ': JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
 // Idle: a screen falls back to the schedule (Home by day) after the idle timeout (?idle=0.05 → 3 s).
 {
   const page = await open({ screen: 'calendar', at: AT, extra: '&idle=0.05' });

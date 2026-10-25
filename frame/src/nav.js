@@ -31,17 +31,39 @@ export function awake(state, mono, idleMs) {
 }
 
 /**
- * Screens the idle return to Home never applies to (2026-10-25): Photos stays up until someone leaves
- * it, so the frame can work as a plain photo frame. The schedule doesn't take over either, so Photos
- * stays up through night mode too. `awake` still means "touched lately" (reloads wait for it to end).
+ * Screens the idle return to Home doesn't apply to by day (2026-10-25): Photos stays up until someone
+ * leaves it, so the frame can work as a plain photo frame. At night (the schedule's night window) Photos
+ * follows the same rule as every other screen: once idle (no touch for `idleMs`), the night clock takes
+ * over, and the frame wakes to Home in the morning (see `settle`). `awake` still means "touched lately"
+ * (reloads wait for it to end).
  */
 export const NO_IDLE = ['photos'];
 export const keepsAwake = (view) => NO_IDLE.indexOf(view) >= 0;
 
-/** The screen to show now: the touched view while awake (or Photos, always), otherwise the schedule. */
+/** The screen to show now: the touched view while awake (or Photos by day), otherwise the schedule. */
 export function screenAt(state, minutes, mono, idleMs, schedule = DEFAULT_SCHEDULE) {
-  if (keepsAwake(state.view) && state.lastTouchMono !== null) return state.view;
-  return awake(state, mono, idleMs) ? state.view : scheduled(minutes, schedule);
+  const sched = scheduled(minutes, schedule);
+  if (sched === HOME && keepsAwake(state.view) && state.lastTouchMono !== null) return state.view;
+  return awake(state, mono, idleMs) ? state.view : sched;
+}
+
+/**
+ * After the night clock has replaced a no-idle screen, forget it, so the morning shows Home like it
+ * does after any other screen (and not Photos again at 6:00). `screen` is what is showing now.
+ */
+export function settle(state, screen) {
+  return screen === NIGHT && keepsAwake(state.view) ? Object.assign({}, state, { view: HOME }) : state;
+}
+
+/**
+ * Restore a no-idle screen saved across a reload (build or 3 AM), only by day and within 10 minutes of
+ * the save. Returns the new state, or null to start fresh (Home or the night clock per schedule).
+ */
+export const RESUME_MAX_MS = 10 * 60000;
+export function resumeState(saved, nowMs, minutes, mono, schedule = DEFAULT_SCHEDULE) {
+  if (!saved || !keepsAwake(saved.view) || !(Math.abs(nowMs - saved.at) < RESUME_MAX_MS)) return null;
+  if (scheduled(minutes, schedule) !== HOME) return null;
+  return { view: saved.view, lastTouchMono: mono, peekUntilMono: null };
 }
 
 /** The rail shows for RAIL_PEEK_S after the last touch that showed or used it, never at night. */
@@ -90,9 +112,11 @@ export function tap(state, mono, screen, target) {
   return next;
 }
 
-/** Milliseconds until the frame falls back to the schedule, or null when it isn't awake or never will. */
+/**
+ * Milliseconds until the idle window ends, or null when it isn't awake. When it ends the frame falls back
+ * to the schedule, except Photos by day, which stays (see `screenAt`).
+ */
 export function msUntilIdle(state, mono, idleMs) {
-  if (keepsAwake(state.view)) return null;
   return awake(state, mono, idleMs) ? idleMs - (mono - state.lastTouchMono) : null;
 }
 

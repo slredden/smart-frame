@@ -203,10 +203,15 @@ onTap(target) : if screen == NIGHT → view = 'home', peek 10 s           # wake
 - `idleMs` is the Settings idle timeout (default 10 min, the v1 value). When it runs out, the frame goes
   back to the scheduled screen, which is Home in the day window and the night clock in the night window.
 - A frame woken at 23:00 that is left alone falls back to the night clock after the idle timeout.
-- **Photos never idles (2026-10-25).** While the Photos screen is showing, the idle timeout doesn't
-  apply and the schedule doesn't take over, so it also stays up through night mode: the frame works as a
-  plain photo frame until someone leaves Photos from the rail. Every other screen still returns to
-  Home or the night clock. A build or 3 AM reload on Photos comes back to Photos.
+- **Photos never idles by day (2026-10-25).** In the day window the idle timeout doesn't apply while
+  the Photos screen is showing: the frame works as a plain photo frame until someone leaves Photos from
+  the rail. Every other screen still returns to Home.
+- **Night takes over Photos (2026-10-25, follow-up).** In the night window Photos follows the same rule
+  as every other screen: the night clock (and night backlight) replaces it once nobody has touched the
+  frame for the idle timeout. Photos left up at 21:59 becomes the night clock at 22:00 if the last touch
+  was over `idleMs` ago, otherwise when `idleMs` after the last touch runs out; Photos opened at 23:00
+  does the same. Once the night clock shows, Photos is forgotten, so 6:00 shows Home. A build reload on
+  Photos by day comes back to Photos; at night (including the 3 AM reload) it doesn't.
 - `version.js`'s quiet-moment check uses `awake()` instead of `overrideActive`, so a safe reload still
   waits until nobody is using the frame.
 - Layout follows `railShown` through the body's `rail-on` class: hidden = full-width screen plus the
@@ -1558,6 +1563,7 @@ Breakdown inside P1 and P1b:
 | Rail full width | 2026-10-24 | Off Home, the screen uses all 1280 px while the rail is hidden (no 96 px strip); the rail pushes it right while shown. A transparent 32 px left-edge zone brings the rail back; a blank 96×72 corner keeps the kiosk Menu zone clear. e2e on all 6 non-Home screens: view at x=0, w=1280 when hidden and x=96 when shown, no control under the edge zone, edge tap reveals, checkbox/undo/Settings work with the rail hidden without showing it |
 | P2 Controls (agent side) | 2026-10-24 | Secrets plumbing (`HA_TOKEN`, `SPOTIFY_CLIENT_SECRET` optional in worker-secrets; `SPOTIFY_CLIENT_ID` var). Spotify OAuth on `/admin`, `/api/spotify/state` and actions, last speaker by name, `device_absent`. Cameras via HA (GET only, `controls_cams` allowlist on `/admin`, streamed `no-store` images, indoor 403 unless revealed). No `HA` binding in `wrangler.jsonc` yet: detected at runtime, "not connected" until the VPC Service exists. Controls screen with `features.controls` on: Spotify card (play/pause/skip/volume, optimistic with revert toast, speaker list), 2×2 snapshots (fetched only when `updated` changes, age and stale marks, tap to enlarge), indoor covered with tap-to-show for 30–60 s (Settings › Indoor cameras, off by default), polls every 5 s only while shown. Full-width/push rail and 32 px edge zone respected. Waits on Chief's §14 steps 12–13 and Stephen's Spotify connect |
 | Photos no idle | 2026-10-25 | The idle return to Home no longer applies on the Photos screen (`nav.NO_IDLE`); night mode doesn't take over it either. Other screens unchanged. A reload on Photos resumes Photos |
+| Photos night | 2026-10-25 | Night takes over Photos: in the schedule's night window Photos idles to the night clock after the idle timeout like every other screen (`nav.screenAt`), the night clock forgets Photos so the morning is Home (`nav.settle`), and the reload restore is day-only (`nav.resumeState`). Daytime Photos still never idles |
 | P2.1 Spotify Recent | 2026-10-25 | Controls › Recent: "Play from Spotify" sheet with Recent (≤ 10 contexts, 2×5, no scroll, album when no context, shows skipped, topped up from playlists) and Playlists (≤ 20, scrolls) tabs. `GET /api/spotify/recent` (60 s memory cache, no KV/D1 writes, 404/403 lookups skipped, 429 backoff). Play takes a validated `context_uri` from the start (no offset for artists), shuffle untouched, active → remembered device → 409 `device_absent`. Optional scopes `user-read-recently-played playlist-read-private`; without them `needs_consent` and soft `spotify_recent_needs_consent`. CSP `img-src` adds only `https://i.scdn.co`. Sheet closes on outside tap, Close or 30 s idle; touches never toggle the rail |
 
 ## 14. Stephen's manual steps
