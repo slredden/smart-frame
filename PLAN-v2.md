@@ -1,6 +1,6 @@
 # smart-frame v2 plan: one Home, nav rail, Calendar, Tasks, Weather, Photos, Reflection, Controls, Settings, alerts and brightness
 
-Status: **plan only**, revised 2026-10-24 with Stephen's decisions (through Chief), including the frame hardware check, Tasks, alerts and brightness. It builds on
+Status: **approved 2026-10-24** (Stephen, 6:53 PM MT, through Chief: Dev's recommended defaults on Q1, Q2, Q10, Q11 and Q12). **v1.2 and phase F shipped 2026-10-24** (§13.1). P1 and P1b are approved and next; H, P2 and D are not yet approved. It builds on
 [PLAN.md](PLAN.md) (v1, shipped) and v1.1 (shipped, §12). Nothing here changes v1 decisions unless it says
 so. **v2 does change one:** the A/B layouts and the A/B tap swap are removed (§2).
 
@@ -289,7 +289,7 @@ on `/admin`. v2 adds it on the frame, in **Settings** (§7), with a shortcut fro
   - The `calendar` grant's scopes in `worker/src/google/oauth.js` become: `calendar.events.readonly`, plus
     `calendar.calendarlist.readonly` (v1.1), plus `tasks` (or `tasks.readonly`).
   - That change ships in **P1's first deploy**, before the Tasks screen exists. Stephen then clicks
-    **Reconnect calendar** once, and that one click also covers v1.1's still-pending reconnect.
+    **Connect calendar** (the `/admin` button) once, and that one click also covers v1.1's still-pending reconnect.
   - The Photos grant (`photospicker.mediaitems.readonly`) doesn't change. v2 adds **no other Google
     scope**: Weather uses Open-Meteo, and Alerts reuse cached data.
   - Until the reconnect, health shows a soft `tasks_scope_missing` code, and the Tasks screen shows
@@ -596,8 +596,11 @@ and the guides stored in §8.2. They're computed in `buildHealth` from the decry
   - the DST boundary
   - the empty DB
 - **This can ship on its own before Phase 1**, in about 1–2 h. With only the current `id = 1` row, "all
-  published guides" is just that one guide, and the definitions still hold. It isn't built in this plan
-  change.
+  published guides" is just that one guide, and the definitions still hold. **Shipped 2026-10-24 as
+  phase F** (`reflectionFreshness` in `shared/reflection.js`; `frame.build` was added to the health JSON
+  at the same time).
+- "Day 9" counts the week's start as day 0: with `anchor = start`, `today − anchor = 8` is still fresh and
+  `9` is stale.
 
 ## 9. Alerts (new): banner and optional chime
 
@@ -880,7 +883,7 @@ v2 builds on it as merged and doesn't reopen it.
 - D1 `calendars` table via the runtime schema (no migration to apply).
 - **Consent:** v1.1 added **`calendar.calendarlist.readonly`** (`calendarList.list` needs a calendar-list
   scope; `calendar.events.readonly` already covers events on every calendar). [S] still has to do
-  **Reconnect calendar** on `/admin` once. v2 folds this into one reconsent after P1's first deploy,
+  **Connect calendar** on `/admin` once. v2 folds this into one reconsent after P1's first deploy,
   together with the Tasks scope (§4.1, §14 step 1). Until then the frame shows the primary calendar.
 
 ## 13. Phases
@@ -924,6 +927,13 @@ Breakdown inside P1 and P1b:
 | Reflection screen + history | P1b | 0.75–1 |
 | Photos | P1b | 0.5–0.75 |
 
+### 13.1 Shipped
+
+| Phase | Date | Notes |
+| --- | --- | --- |
+| v1.2 | 2026-10-24 | §2.6 deletion list: one Home layout (photo left, info right), `scheduled(minutes, schedule)` → HOME/NIGHT at 6:00–22:00, idle and taps in `nav.js` (a tap at night wakes to Home), no A/B swap. Night dim clock and the "Nothing else today. Next: …" row kept |
+| F | 2026-10-24 | §8.5 freshness codes in `/api/health`, runbook-health codes. The §8.4 routine is Chief's |
+
 ## 14. Stephen's manual steps
 
 1. **One Google reconsent for all of v2**, done after P1's first deploy. It also covers v1.1's
@@ -931,10 +941,9 @@ Breakdown inside P1 and P1b:
    - Beforehand, with Chief's guidance: enable **Google Tasks API** in the Cloud project. On the consent
      screen's Data Access page, add `tasks` (or `tasks.readonly`, per Q10) and
      `calendar.calendarlist.readonly`.
-   - Click **Reconnect calendar** on `/admin` once.
+   - Click **Connect calendar** on `/admin` once (the same button as the first connect).
    - Load calendars and tick the ones to show. Load task lists and tick the ones to show.
-2. **Answer the open questions** before P1: Q1–Q2 (A/B timing, schedule), Q10–Q11 (Tasks scope and
-   account), and Q12 (alert defaults).
+2. ~~**Answer the open questions** before P1: Q1–Q2, Q10–Q11 and Q12.~~ Answered 2026-10-24 (§15).
 3. **Reflection:** tell Chief where Sage's finished guides land and whether Chief may auto-publish them
    (Q7). Answer Q3–Q6.
 4. **On the frame after P1:**
@@ -972,6 +981,13 @@ Breakdown inside P1 and P1b:
 ## 15. Open questions
 
 **Resolved so far:**
+- **Q1, Q2, Q10, Q11, Q12** (Stephen, 2026-10-24 6:53 PM MT: "all dev's picks are good"):
+  - Q1: A/B removal shipped early as v1.2 (taps only wake the frame until the rail lands).
+  - Q2: Home 6:00–22:00, night 22:00–6:00.
+  - Q10: the full `tasks` scope, with check-off behind the Worker guards and undo.
+  - Q11: assumed to be the calendar grant's account (his Workspace account); P1b checks this when it
+    loads task lists.
+  - Q12: the proposed alert defaults.
 - Rail on Home: hidden, and a tap shows it for 30 s.
 - Rail order: 8 items, decided 2026-10-24 (§2.2).
 - Spotify Premium: yes.
