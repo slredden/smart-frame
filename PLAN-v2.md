@@ -1205,15 +1205,24 @@ Every secret file is readable only by root, or for `cloudflared.env` only by `sr
 
 ```json
 {
-  "mqtt_url": "mqtt://mosquitto:1883",
-  "mqtt_user": "ringmqtt",
-  "mqtt_pass": "<RINGMQTT_PASSWORD>"
+  "mqtt_url": "mqtt://ringmqtt:<RINGMQTT_PASSWORD>@mosquitto:1883"
 }
 ```
 
+**The MQTT credentials go inside `mqtt_url`.** ring-mqtt 5.9.3 ignores separate `mqtt_user` /
+`mqtt_pass` keys, so a config that uses them connects without auth and Mosquitto refuses it (fixed on
+`reddencloud` 2026-10-24). The password is `openssl rand -hex` output, so it needs no URL escaping.
+The file is written under `umask 077` (root-only).
+
 **Stephen's commands, in order** (on `reddencloud`, in a terminal):
 
+> **Run `sudo -v` first, before pasting any multi-line block.** It caches the sudo password for a few
+> minutes. Otherwise a sudo password prompt that appears mid-paste swallows the lines pasted after it,
+> and they never run (this happened on 2026-10-24). If a block was pasted over a prompt, re-run it.
+
 ```bash
+sudo -v                                # cache sudo first, so no prompt eats pasted lines
+
 # 1. Folders
 sudo mkdir -p /opt/smart-frame-ha/{homeassistant,mosquitto/config,mosquitto/data,ring-mqtt}
 cd /opt/smart-frame-ha
@@ -1310,8 +1319,9 @@ sudo chown 1883:1883 /opt/smart-frame-ha/mosquitto/config/passwd
 sudo chmod 0700 /opt/smart-frame-ha/mosquitto/config/passwd
 printf '%s\n' "$HA_MQTT_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ha-mqtt-password.txt'
 
-# 5. ring-mqtt config, and an empty tunnel env file (filled in at step 12)
-printf '{\n  "mqtt_url": "mqtt://mosquitto:1883",\n  "mqtt_user": "ringmqtt",\n  "mqtt_pass": "%s"\n}\n' \
+# 5. ring-mqtt config (credentials inside mqtt_url; ring-mqtt 5.9.3 ignores mqtt_user/mqtt_pass),
+#    and an empty tunnel env file (filled in at step 12)
+printf '{\n  "mqtt_url": "mqtt://ringmqtt:%s@mosquitto:1883"\n}\n' \
   "$RING_MQTT_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ring-mqtt/config.json'
 unset HA_MQTT_PW RING_MQTT_PW
 sudo install -m 600 -o "$USER" -g "$USER" /dev/null /opt/smart-frame-ha/cloudflared.env
@@ -1357,7 +1367,12 @@ docker compose logs -f homeassistant      # wait until it settles, then Ctrl-C
 9. **Ring login (2FA):** open **http://reddencloud.local:55123** (or the `.24` address), enter the Ring email and password, then the
    2FA code. Then run `docker compose logs --tail=50 ring-mqtt`, which should list the four cameras.
    The page stops once the token is saved in `ring-mqtt/ring-state.json`. Treat that file as a secret,
-   since it's full Ring account access (ring-mqtt docs).
+   since it's full Ring account access (ring-mqtt docs). It holds the **Ring refresh token**, so lock it
+   down right after the login:
+
+   ```bash
+   cd /opt/smart-frame-ha && sudo chmod 600 ring-mqtt/ring-state.json
+   ```
 10. **MQTT integration:** HA › Settings › Devices & services › Add integration › **MQTT**.
     - Broker `127.0.0.1`, port `1883`, username `homeassistant`.
     - Password: run `sudo cat /opt/smart-frame-ha/ha-mqtt-password.txt`, paste it, then `clear`.
@@ -1396,6 +1411,28 @@ docker compose logs -f homeassistant      # wait until it settles, then Ctrl-C
     - If the Worker gets HTTP 400 from HA: since HA 2026.8, reverse-proxy settings are set in the UI, at
       **Settings › System › Network › HTTP server**. Turn on "Trust X-Forwarded-For" and add `127.0.0.1`
       to Trusted proxies.
+
+**Changing one MQTT user's password later** (e.g. `ringmqtt` or `homeassistant`). Update the existing
+`passwd` file in place with `mosquitto_passwd -b`; don't rewrite the file, or the other user's entry is
+lost. Then restore the owner and mode from step 4:
+
+```bash
+sudo -v
+NEW_PW=$(openssl rand -hex 16)                     # never printed
+docker run --rm -v /opt/smart-frame-ha/mosquitto/config:/mosquitto/config \
+  eclipse-mosquitto:2.1.2-alpine mosquitto_passwd -b /mosquitto/config/passwd ringmqtt "$NEW_PW"
+sudo chown 1883:1883 /opt/smart-frame-ha/mosquitto/config/passwd
+sudo chmod 0700 /opt/smart-frame-ha/mosquitto/config/passwd
+# For ringmqtt: rewrite mqtt_url with the new password (same umask 077 as step 5)
+printf '{\n  "mqtt_url": "mqtt://ringmqtt:%s@mosquitto:1883"\n}\n' \
+  "$NEW_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ring-mqtt/config.json'
+unset NEW_PW
+cd /opt/smart-frame-ha && docker compose restart mosquitto ring-mqtt
+```
+
+For `homeassistant` instead: use `homeassistant` as the user above, skip the `config.json` lines, write
+the new password to `ha-mqtt-password.txt` as in step 4, restart `mosquitto`, and update the password in
+HA › Settings › Devices & services › MQTT › Reconfigure.
 
 **Updates:** edit a tag in `compose.yaml` (`sudo` to edit, since it's root-owned), then run `docker compose pull && docker compose up -d`.
 
@@ -1439,6 +1476,8 @@ after P1 and P1b, in plan order.**
 - Chief has sent Stephen **§11.9 steps 1–10** (files, start, onboarding, recorder, Ring login, MQTT).
   Those may run now.
 - **Steps 11 (next-day load check) and 12 (tunnel + `cloudflared`) stay gated** until Chief sends them.
+- **Live (per Chief, 2026-10-24 8:24 PM MT):** the stack is up on `reddencloud`, ring-mqtt is connected
+  to Mosquitto (after the `mqtt_url` credentials fix in §11.9), and the Ring devices appear in HA.
 
 Agent work for H and P2 that needs no box (code, tests, docs) can go ahead in plan order.
 
@@ -1520,8 +1559,8 @@ Breakdown inside P1 and P1b:
 9. **Start and onboard** (§11.9 commands 6–8): `docker compose up -d` for HA, Mosquitto and
    ring-mqtt, check the logs, then open **http://reddencloud.local:8123** (or the `.24` address) from the home network. Create the owner
    account (time zone America/Denver), add the recorder snippet and restart HA.
-10. **Ring and MQTT** (§11.9 steps 9–10): sign in to Ring with 2FA at **http://reddencloud.local:55123**, then
-    add HA's MQTT integration (`127.0.0.1:1883`, user `homeassistant`) and check that the four cameras
+10. **Ring and MQTT** (§11.9 steps 9–10): sign in to Ring with 2FA at **http://reddencloud.local:55123**,
+    run `sudo chmod 600 /opt/smart-frame-ha/ring-mqtt/ring-state.json` (it holds the Ring refresh token), then add HA's MQTT integration (`127.0.0.1:1883`, user `homeassistant`) and check that the four cameras
     appear. In the Ring app, set the front door's (battery) **Snapshot Capture** to every 10–15 min. The
     wired three stay at 30 s (§11.6).
 11. **Gated until Chief sends it. Next day, during a Plex transcode** (§11.9 step 11): send Chief the `docker stats`, `free -h` and
