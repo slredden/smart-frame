@@ -1,6 +1,6 @@
 # smart-frame v2 plan: one Home, nav rail, Calendar, Tasks, Weather, Photos, Reflection, Controls, Settings, alerts and brightness
 
-Status: **approved 2026-10-24** (Stephen, 6:53 PM MT, through Chief: Dev's recommended defaults on Q1, Q2, Q10, Q11 and Q12). **v1.2, phase F and P1 shipped 2026-10-24** (§13.1). P1b is approved and next; H, P2 and D are not yet approved. It builds on
+Status: **approved 2026-10-24** (Stephen, 6:53 PM MT, through Chief: Dev's recommended defaults on Q1, Q2, Q10, Q11 and Q12). **v1.2, phase F, P1, P1b and the rail auto-hide shipped 2026-10-24** (§13.1). H (agent side) and P2 are approved (7:20 PM MT) and being built; D still needs Stephen's OK. It builds on
 [PLAN.md](PLAN.md) (v1, shipped) and v1.1 (shipped, §12). Nothing here changes v1 decisions unless it says
 so. **v2 does change one:** the A/B layouts and the A/B tap swap are removed (§2).
 
@@ -32,7 +32,7 @@ Decided by Stephen through Chief on 2026-10-24, and replacing the first draft of
 | **Weather** | Today hour by hour, plus a 10-day outlook (Open-Meteo, no key) |
 | **Photos** | The photo set, with interval, order, captions, fit, pause/next/prev, favorite and hide |
 | **Reflection** | The current guide from Sage: this week in full, the guide's weeks, and recent guides |
-| **Controls** | Lights, TV and media, Spotify and Ring snapshots, through Home Assistant (Phase 2) |
+| **Controls** | Spotify (Worker → Spotify Web API) and the four Ring cameras' snapshots (through Home Assistant), Phase 2. Room to add more later |
 | **Settings** | Frame-wide options: calendar and task-list selection, day/night schedule, night dim, idle timeout, weather location, alerts, brightness |
 
 Wes Bos's reference labels its control view "Home" next to "Today". We call ours **Controls** so it can't
@@ -73,7 +73,7 @@ be confused with Home.
   (device plan step 4), and the Home HQ kiosk (step 6).
 - **No camera or microphone assumptions.** Nothing in v1 or this plan uses either. v1 PLAN.md §1 already
   rules out motion-sensor wake and voice, and v2 keeps that. The only "cameras" here are the Ring cameras,
-  shown as snapshots fetched through Home Assistant (§11).
+  shown as snapshots fetched through Home Assistant (§11.6).
 
 ## 2. Navigation, Home, schedule and touch
 
@@ -412,14 +412,15 @@ on `/admin`. v2 adds it on the frame, in **Settings** (§7), with a shortcut fro
 | Calendar selection (also on `/admin`) | Google connect/reconnect, the Photos picker session |
 | Day/night schedule | Device pairing, revoking devices |
 | Night dim level | Publish and health tokens, all secrets |
-| Idle-return timeout | The Controls allowlist editor (Phase 2) |
+| Idle-return timeout | The Controls camera list and Spotify connect (Phase 2) |
 | Weather location | "Reset frame settings to defaults" |
 | Task-list selection (also on `/admin`) | Enabling the Tasks API and the v2 reconsent |
 | Alerts (§9) | |
 | Brightness (§10; read-only until phase D) | |
+| Controls › Show indoor cameras and reveal time (§11.7, Phase 2; also on `/admin`) | |
 
 Photo display options stay on the Photos screen (§6) and are stored the same way. **Secrets, Google
-connect, pairing and the Controls allowlist never appear on the frame.**
+connect, Spotify connect, pairing and the Controls camera list never appear on the frame.**
 
 ### 7.2 Fields, bounds and defaults
 
@@ -773,98 +774,680 @@ and the guides stored in §8.2. They're computed in `buildHealth` from the decry
   it's one more `adb install -r` with Stephen's OK.
 - Everything else in v2 works without it. Brightness then stays manual on the device, as in v1.
 
-## 11. Controls screen (Phase 2) and Home Assistant
+## 11. Controls screen (Phase 2): Spotify and Ring
 
-### 11.1 What can and can't be controlled (verified 2026-10-24)
+Revised 2026-10-24 from Stephen's answers. Facts checked against live docs on 2026-10-24 (§17).
 
-| Gear | Path | Notes |
+### 11.1 Scope (decision)
+
+The screen keeps the name **Controls** so more can be added later. For now it has two things:
+**Spotify** and the **four Ring cameras**.
+
+| Item | Path | Notes |
 | --- | --- | --- |
-| **Wemo plugs** (4 answer locally) | HA `wemo`, Local Push via pywemo | Belkin shut the Wemo cloud, app and **Alexa/Google integrations on 2026-01-31**; pywemo is local and unaffected. So Alexa control of Wemo should already have stopped → **Q17**. HA needs the plugs on its subnet (port 8989 inbound for push) |
-| **Smart bulbs** (brand unconfirmed, maybe Philips) | **Hue**: HA `hue` via a Hue Bridge, Local Push. **Without a bridge**: depends on brand | Cloud-only bulbs (the scan shows a GE light and Tuya devices, both cloud) need a cloud integration or can't be controlled; that's a **risk**, decided per brand once identified (**Q16**, [S] task) |
-| **Alexa** | Stays as it is, beside HA. **Not the control path** | No official Alexa control API for this use. The HACS `alexa_media_player` uses the unofficial Alexa API and breaks with Amazon changes. We don't depend on it |
-| **Harmony Hub** `.109` | HA `harmony`, Local Push | Logitech stopped making Harmony in 2021; the hub keeps working locally. HA docs: some firmware needs "Enable XMPP" in the Harmony app. Activities (`remote.turn_on activity=…`) are the useful control |
-| **Samsung TV** `.67` | HA `samsungtv`, Local Push | Turning on from off may need Wake-on-LAN, depends on model (**Q19**) |
-| **Roku Streambar** `.61` | HA `roku`, Local Polling (ECP) | Power, volume, input, app launch |
-| **Fire TV** `.76` | HA `androidtv` (ADB), Local Polling | The Android TV Remote integration does **not** work on Fire TV (HA docs). ADB is already enabled for the dumbtv work |
-| **Google Cast** (`.104 .115 .132`, Fire TV) | HA `cast`, Local Polling | Play/pause/volume of what's casting. HA Container needs host networking for discovery |
-| **Spotify** | HA `spotify` (cloud) | **Premium required** (Spotify requires Premium for the Developer Portal since Feb 2026). **Stephen has Premium.** Plays on Spotify Connect/Cast speakers that Spotify knows (`source_list`), never on the frame (§11.5) → **Q18** |
-| **Ring** (doorbell, stickup, 4 cameras) | HA `ring`, Cloud Polling (60 s) | No official public Ring API; HA's integration is community-maintained on Ring's cloud, needs Ring login + 2FA, and can break. Live view is WebRTC through HA's frontend; we use **snapshots** (`/api/camera_proxy/<entity>`) refreshed every 10 s while the Controls screen is open. Battery cameras may return stale snapshots. Last-recording needs Ring Protect |
+| **Spotify** (Premium) | **Worker → Spotify Web API directly.** No Home Assistant | §11.5. It lists the Connect devices Spotify knows, moves playback, does play/pause/skip/volume and shows what's playing |
+| **Ring cameras**: front door, back porch (outdoor); living room, basement (indoor) | Worker → Workers VPC → tunnel → Home Assistant (§11.2–11.3) | Snapshots only, never live video (§11.6). The indoor cameras have privacy rules (§11.7) |
+| Lights, smart bulbs | **Dropped** | Q16 closed |
+| Wemo plugs | **Dropped.** Stephen keeps them on Alexa | Q17 closed. Left on record: Belkin ended the Wemo cloud and its Alexa/Google integrations on 2026-01-31, so if Alexa stops controlling them, HA's local `wemo` integration is the fallback (a later Controls addition) |
+| Harmony Hub | **Dropped** (unused) | Q21 closed |
+| Samsung TV (a Samsung Frame TV) | **Dropped** | Q19 closed |
+| Roku, Fire TV, Google Cast as HA devices | **Dropped** | They show up only as **Spotify devices**, and only if Spotify lists them (§11.5) |
+| Alexa | Unchanged, beside all this. Not a control path | No official Alexa control API for this |
+
+Home Assistant is now only for Ring. It stays because Ring has no official API, the Worker can't reach the
+LAN, and HA gives one place with a scoped token and room to add things later. The other way to do it,
+a small custom MQTT-to-HTTP bridge, would be more of our own code to maintain.
 
 ### 11.2 Where Home Assistant runs (decision)
 
-**Home Assistant OS in a VM on the MIGUEL PC** (the home Windows PC that already runs 24/7). Reasons:
-it's known to be always on and reachable for Chief's approved commands; HA OS gives add-ons
-(cloudflared) and HACS without hand-built containers; the HA docs install path for Windows is a VM.
-**ReddenNAS** is the better long-term host *if* its model can run a VM or Docker with host networking
-(Cast and Wemo push need it); its model is unknown → **Q14**. Switching later is an HA backup/restore.
-Either way HA must sit on the same LAN/VLAN as the Wemo plugs and TVs (the proposed IoT-VLAN split on
-the Omada page would need mDNS/SSDP forwarding or static IPs).
+**HA Container (Docker, host networking) on the Ubuntu box that runs Plex, `reddencloud`** (an old
+Mac), with `cloudflared` beside it. The host facts (Q23) and the full runbook are in §11.9.
 
-### 11.3 How the frame reaches HA (decision)
+Ruled out:
+- **MIGUEL**: not to be used (Stephen).
+- **ReddenNAS**: a Buffalo LinkStation LS220DE, an ARM NAS that can't run HA.
+- **The other Ubuntu Mac**: it runs OpenClaw. It stays separate and is never used for this.
 
-The Worker can't reach the LAN, and the frame page (HTTPS on workers.dev) can't call `http://` LAN
-addresses (mixed content) and mustn't hold an HA token. Options weighed:
+Facts from the HA docs:
+- HA Container needs **Docker Engine ≥ 23.0.0**. Docker Desktop is not supported.
+- The documented run is `--network=host --privileged -v <config>:/config -e TZ=America/Denver
+  --restart=unless-stopped ghcr.io/home-assistant/home-assistant:stable`. There's a compose example with
+  `stop_grace_period: 60s`.
+- Container installs have **no apps (the old add-ons)**. So `cloudflared` and the Ring bridge (§11.6) run
+  as their own containers in the same compose file, not as add-ons.
+- **Only 64-bit is supported**: amd64 and aarch64. 32-bit (i386, armhf, armv7) was deprecated in
+  May 2025 and dropped from 2025.12. The Core and Supervised installs are deprecated.
+- The HA docs give **2 GB RAM and 2 vCPU** as the minimum (stated for the HA OS VM). There's no separate
+  figure for Container, so we treat **≥ 2 GB RAM free beside Plex** as the floor.
 
-| Option | Verdict |
-| --- | --- |
-| **A. Workers VPC Service over a Cloudflare Tunnel** — `cloudflared` on the HA host makes an outbound tunnel; a VPC Service registers `http://<ha-ip>:8123`; the Worker calls it through a `vpc_services` binding | **Chosen.** No public hostname, no DNS, no inbound port, HA never on the internet. Available on the Free plan and free during its open beta. Low latency (direct call per tap) |
-| B. Tunnel with a public hostname (+ Access) | Rejected: needs a zone on Cloudflare (a DNS change/custom domain) and puts HA on a public name |
-| C. Quick tunnel (`trycloudflare.com`) | Rejected: random public URL, no uptime guarantee |
-| D. HA webhooks called by the Worker | Rejected: needs HA reachable from the internet (B) or Nabu Casa (paid); webhook IDs are bearer secrets |
-| E. HA pulls commands from the Worker (automation or small script polling `/api/controls/queue` every 3–5 s) | **Fallback** if Workers VPC changes terms: free and outbound-only, but 1–5 s lag and ~17–29k Worker requests/day of the 100k |
-| F. Frame → HA directly on the LAN | Rejected: mixed content, and an HA token or webhook ID on the frame |
+The checks that answered **Q23** (results in §11.9: Ubuntu 24.04.3, 2 cores, 7.5 GiB, 62 GB free, Docker 27.3.1):
 
-Security model for A:
-- A dedicated **non-admin HA user `frame`** with a long-lived access token, stored only as a Worker
-  secret `HA_TOKEN` (never in the frame, git or logs). Non-admin blocks HA's admin endpoints; HA has
-  **no UI for per-entity permissions**, so the token can still call any service on any entity.
-- Therefore **the Worker is the real gate**: D1 table `controls (id, kind, entity_id, label,
-  room, position, actions_json)` configured on `/admin`, and `POST /api/controls/:id/:action` (device auth)
-  maps only allowlisted `(id, action)` pairs to fixed HA service calls (`light.turn_on/off`,
-  `switch.turn_on/off`, `media_player.media_play_pause/volume_up/…`, `remote.turn_on activity=…`).
-  No free-form service, entity or data from the frame. Locks, garage and alarm entities are refused by
-  kind (house rule: garage off-limits).
-- State: `GET /api/controls` (device auth) is called every 5 s **only while Controls is visible**; the Worker
-  reads the allowlisted entities from HA (`/api/states/<entity>`, ≤ 30 per call, under the 50
-  subrequest cap) and returns `{id, state, brightness?, media?}`. Snapshots: `GET /api/controls/cam/:id`
-  proxies `/api/camera_proxy/<entity>` (no caching in KV; `Cache-Control: no-store`).
-- Request budget: 5 s polling for, say, 30 min/day of Controls use ≈ 360 requests + taps. Negligible.
+| Check | Command | Pass |
+| --- | --- | --- |
+| Model / year | `cat /sys/class/dmi/id/product_name` (e.g. `MacBookPro11,1`) | Any Intel Mac with a 64-bit CPU. A 2006 Core Duo is 32-bit and fails |
+| CPU | `lscpu` (Architecture, Model name, CPU(s)) | `x86_64`, 2+ cores |
+| RAM | `free -h` | **≥ 2 GB available** while Plex is idle; 4 GB+ total is comfortable |
+| Disk | `df -h /` (and wherever Docker data lives) | ≥ 10 GB free for HA's config, database and images |
+| Ubuntu | `lsb_release -a` | A supported LTS (22.04 or 24.04) |
+| Docker | `docker version` | Engine ≥ 23.0.0 from Docker's apt repo. Not Docker Desktop and not the snap |
+| Plex load | `uptime`, and `top` during a transcode | Load stays well under the core count. If transcodes already peg the CPU, HA still fits (it's light), but say so |
+| Always on | Sleep disabled, wired Ethernet, comes back after a power cut | Same needs as Plex |
+
+Ring needs outbound TCP 5228 for its push events (HA ring docs). That's normally open on a home network.
+
+### 11.3 How the Worker reaches HA (decision)
+
+The frame talks **only to the Worker** (§11.8). The Worker reaches HA through **Workers VPC**: a VPC
+Service over a Cloudflare Tunnel. `cloudflared` on `reddencloud` makes an outbound tunnel, and the VPC
+Service points at HA's port 8123 at `127.0.0.1` (HA and `cloudflared` both use host networking, §11.9). The
+Worker calls it through a `vpc_services` binding. It's on the Free plan and free during the open beta
+(docs updated 2026-09/10, still beta). Standard Workers limits apply.
+
+**Is it still right with only Ring? Yes.**
+- Pull-on-demand costs nothing when nobody is looking.
+- The alternative is HA pushing snapshots to the Worker (old option E). That would have to store images.
+  At one per camera every 30 s that's ~11.5k writes/day, far over KV's 1k/day, and it would run all day.
+  Images in D1 would be a misuse.
+- The rejected options stay rejected: a public hostname (needs a DNS zone), a quick tunnel (a public
+  random URL), webhooks (HA on the internet, or Nabu Casa, which is paid), and frame → HA on the LAN
+  (mixed content, a token on the frame, and it fails at the office).
+
+Security model:
+- A dedicated **non-admin HA user `frame`** with a long-lived token. The token is a GitHub secret
+  `HA_TOKEN` that `worker-secrets.yml` copies into the Worker. It never goes on the frame or into git
+  or logs.
+- **The Worker never calls an HA service.** It only does `GET /api/states/<camera>` and
+  `GET /api/camera_proxy/<camera>`, and only for the four cameras on a fixed list. The list is a small
+  D1 table `controls_cams (id, entity_id, label, indoor, position)` edited on `/admin`. HA can't limit a
+  token to certain entities, so this list is the gate. A test asserts there's no POST path to HA.
+- If HA can't be reached, the Worker answers 503 and the Ring card says "Cameras offline". Spotify and
+  the rest of the frame keep working.
 
 ### 11.4 Controls screen layout
 
-- Rooms as sections; tiles 160 × 120: light/plug tiles toggle on tap (optimistic flip, revert with a
-  toast on error after 3 s, the reference's pattern); dimmable Hue lights get a long-press brightness
-  sheet.
-- **Media** card: per player (Roku, Fire TV, Samsung, Cast, Spotify) play/pause, prev/next, volume ±,
-  and Harmony activities as buttons ("Watch TV", "Off").
-- **Ring** card: a 2 × 2 grid of snapshots with "updated 8 s ago"; tap enlarges one.
-- "HA offline" banner when the Worker can't reach HA; the rest of the frame is unaffected.
+- **Spotify card** (left, ~45%):
+  - Now playing: art, title, artist and device.
+  - Buttons: prev, play/pause, next, volume − / +.
+  - A **"Play on…"** list of the Connect devices, with the active one marked. Tapping one moves playback
+    there and **remembers that device by name** (Q18; at the office it's mostly the Echo Dot
+    "Stephen's Office").
+  - Play with no active device goes to the remembered device if Spotify lists it. If it isn't listed:
+    "Stephen's Office not available; say "Alexa, Spotify Connect" or play once from the Spotify app",
+    plus the list of devices that are there (§11.5).
+  - With nothing playing: "Nothing playing", plus the device list.
+  - Spotify not connected: "Connect Spotify on /admin" (never a login on the frame).
+- **Ring card** (right): a 2 × 2 grid with the outdoor cameras first.
+  - Each tile shows "updated 40 s ago". A tile older than 15 min is greyed out with its age.
+  - Tap a tile to enlarge it.
+  - Indoor tiles follow §11.7.
+- Optimistic UI for Spotify buttons, reverting with a toast after 3 s on error (the reference's pattern).
+- Everything stops when Controls is hidden, the page is hidden, or night starts.
 
-### 11.5 Spotify and Bluetooth (Stephen's question)
+### 11.5 Spotify: Worker → Spotify Web API directly (decision)
 
-Stephen has **Spotify Premium** (the old Q15, resolved). He asked about Bluetooth for nearby speakers.
+**OAuth.** Authorization Code flow (the server-side flow with a client secret), with a random `state`
+saved in the existing `oauth_state` table.
+- Scopes: **`user-read-playback-state user-modify-playback-state`**. This is the minimal set:
+  - `GET /me/player` and `GET /me/player/devices` need `user-read-playback-state`.
+  - Transfer, play, pause, next, previous and volume need `user-modify-playback-state`.
+  - `user-read-currently-playing` isn't needed, because `GET /me/player` already returns the current item.
+- The redirect URI is **`https://smart-frame.sredden.workers.dev/admin/spotify/callback`**.
+  - Spotify's rules: exact match; HTTPS required except loopback (`127.0.0.1` / `[::1]`); `localhost`
+    not allowed. Enforced for all apps since November 2025.
+  - So the workers.dev HTTPS URL is fine. It has its own callback path, so the Google flow in
+    `worker/src/google/oauth.js` is untouched.
+- Tokens:
+  - Access and refresh tokens are AES-GCM encrypted with `TOKEN_ENC_KEY` in the existing `grants`
+    table, as grant `spotify`. This is the same pattern as Google's, with a new
+    `worker/src/spotify/oauth.js`. No new table.
+  - On refresh, the client secret goes in the `Authorization: Basic` header. If Spotify returns a new
+    refresh token, it's stored.
+  - Access tokens last 1 h. The Worker refreshes at most once an hour, and only while Controls is in use.
+- **Refresh tokens expire 6 months after authorization, and refreshing doesn't extend that.**
+  - The Worker stores `spotify_connected_at` in `meta`.
+  - `/admin` shows "Reconnect Spotify by <date>".
+  - `/api/health` adds `spotify_reauth_due` from 14 days before expiry. Chief can email that like a
+    Google sign-in problem.
+- Secrets and config:
+  - `SPOTIFY_CLIENT_ID` goes in `wrangler.jsonc` vars, since it isn't secret.
+  - `SPOTIFY_CLIENT_SECRET` is a GitHub secret, added to `worker-secrets.yml` and to the validator in
+    `tools/set-worker-secrets.mjs`.
+  - Connect, reconnect and disconnect are on `/admin` only. The frame never sees a Spotify token.
+- **Premium is required.** The Web API reference says the player endpoints work only for Premium users,
+  and in Development Mode the app owner must have Premium. Stephen has it.
+  - `GET /me` no longer returns `product` (since the February 2026 changes), so the Worker can't check
+    Premium up front. A 403 from a player call shows "Spotify Premium needed".
 
-**Chief's take is right:** Controls should target **Spotify Connect and Cast devices**, through Home
-Assistant's `spotify` integration and the Spotify Web API. Candidates are the Cast speakers (`.104 .115
-.132`), the Samsung TV and the Roku Streambar, if each runs Spotify or Cast. The frame only sends "play
-here, pause, next, volume" to the Worker, which passes allowlisted calls to HA (§11.3). The music never
-goes through the frame.
+**Endpoints (device auth, frame → Worker):**
+- `GET /api/spotify/state` → `GET /me/player` (now playing + active device) and, on the first poll and
+  when the "Play on…" list is opened, `GET /me/player/devices`.
+  - It returns `{connected, playing, item:{title, artists, art}, device:{id,name,type,volume}, devices[]}`.
+  - Art is Spotify's `i.scdn.co` image URL, a public CDN image with no token.
+- `POST /api/spotify/:action`, with action ∈ `play | pause | next | prev | volume | transfer`.
+  - `volume` takes 0–100. `transfer` takes a `device_id` that must be in the last device list.
+  - Each maps to exactly one Web API call. Nothing free-form passes through. The exception is `play`
+    with no active device, which refreshes the device list first (one extra call).
+- **Last-used device (Q18).**
+  - A successful `transfer` stores the device **name** as `spotify_last_device` in D1 `meta`. That's one
+    D1 write per device change, and no KV.
+  - The name is kept rather than the id, because Connect device ids aren't promised to be stable.
+  - `state` marks the remembered device in `devices[]`.
+  - On `play` with no active device, the Worker looks for the name in a fresh `GET /me/player/devices`
+    (exact match, ignoring case). If it's there, it transfers with `play: true`.
+  - If it's missing, it returns `409 {error:"device_absent", name}`. The frame shows "<name> not available;
+    say "Alexa, Spotify Connect" or play once from the Spotify app" and opens "Play on…". It never errors
+    out or plays somewhere else.
 
-- **Device list.** HA's `spotify` media player switches playback with its source list, which contains
-  the Connect devices Spotify currently sees. A Cast speaker that's asleep may be missing from it until
-  it has been cast to once. P2 checks this on the real devices. HA's `cast` entities can still
-  play/pause or change volume on a Cast speaker that's already playing.
-- **Frame Bluetooth only matters if the frame itself makes sound.** The frame's own sound is just the
-  alert chime (§9). Pairing a BT speaker would only move that chime, so it isn't needed. Using it for
-  music would mean playing Spotify on the frame, which is ruled out below.
-- **Web Playback SDK on the frame (would turn the frame into a Connect device): no.**
-  - The SDK needs Encrypted Media Extensions with Widevine. In Android WebView, the app has to grant
-    `RESOURCE_PROTECTED_MEDIA_ID` in `onPermissionRequest`, and the Home HQ kiosk doesn't. Whether this
-    A33 / Android 6 build ships a working Widevine is also unknown.
-  - The SDK runs in the page with a Spotify user access token. That breaks the rule that the frame holds
-    no secret beyond its device token.
-  - The frame's small speaker would be a poor music player anyway.
-- Left open: **which speakers** should be targets, and whether each one shows up in Spotify → **Q18**.
+**Development Mode rules (February 2026, still current):**
+- The app owner needs Premium.
+- **Up to 5 allowlisted users** per app. Stephen is the only one, and he's the owner.
+- Up to 25 client IDs per developer, raised from 1 in July 2026.
+- Rate limits are shared per developer account. A 429 has `Retry-After`, or reason `QUOTA_EXCEEDED` for
+  the dev quota. The Worker passes back "Spotify busy, try again" and the frame backs off.
+- The player endpoints are not among the endpoints removed in February 2026.
+- **Extended quota is not for us.** Since 15 May 2025 it's only for organizations with ≥ 250k MAU. We
+  don't need it.
+
+**Budget (free plan):**
+- The frame polls `/api/spotify/state` every **5 s, only while Controls is visible** (stopped when the
+  page is hidden, at idle return and at night). That's 1 Worker request plus 1 Spotify subrequest.
+- For ~30 min/day of use: ≈ 360 requests plus taps. That's < 1% of 100k/day and ~6 Spotify calls per
+  30 s window.
+- D1 writes: one token refresh per hour of use. KV writes: none.
+
+**Which devices appear (caveat to document on `/admin` and in the runbook):**
+- `GET /me/player/devices` returns only the Connect devices Spotify's servers know about for the account,
+  and "some device models are not supported and will not be listed" (Web API reference).
+- Native Connect devices that are logged in (e.g. an Echo with Spotify linked, Spotify on a TV app,
+  Spotify Connect speakers) are listed **from anywhere, including the office**, because the list is
+  cloud-mediated.
+- **Google Cast speakers are found only by the phone app on the local network.** The Web API doesn't list
+  them until something has cast to them and they're active. Spotify closed this as "not a bug" (GitHub
+  `spotify/web-api` #787 and #834).
+  - So a sleeping Cast speaker at home won't be in the list. Stephen starts Spotify on it once from his
+    phone, and then it can be controlled from the frame while it stays active.
+  - The frame shows "Not listed? Start Spotify on it once from your phone."
+- Roku, Fire TV and the Samsung TV appear only if their Spotify app is signed in and Spotify lists them.
+  There's nothing HA-side for them.
+- **Q18 (answered): at the office, mostly the Echo Dot "Stephen's Office".** Echo Dots are supported
+  Spotify (Premium) devices.
+  - **Spotify must be linked in the Alexa app**: More › Settings › Music & Podcasts › Link New Service ›
+    Spotify. Setting it as **Your Default Services** is better, so "Alexa, play…" uses it too
+    (Spotify support, "Spotify on Alexa devices"). It must be the same Spotify account that the frame
+    connects.
+  - **An idle Echo can drop out of the device list.** Saying **"Alexa, Spotify Connect"** to it, or
+    playing once from the Spotify app, makes it appear again (Spotify's newsroom guide and the Spotify
+    Community answers). That's what the frame's "not available" message says.
+  - The Community threads are about the phone app's picker. That the Web API list behaves the same way
+    is a reasonable assumption, and P2's on-frame check confirms it.
+  - The name is whatever Alexa calls the device, so renaming it in the Alexa app means picking it once
+    again on the frame.
+
+**Bluetooth and the Web Playback SDK on the frame: still no.**
+- The frame only makes the alert chime.
+- The SDK needs Widevine EME, which the kiosk doesn't grant and which this A33 build may lack.
+- The SDK would also put a Spotify token on the frame.
+
+### 11.6 Ring snapshots
+
+**Finding that changes Stephen's plan (from HA's source, `homeassistant/components/ring/camera.py`
+and `strings.json`):**
+- The **HA Ring integration's camera image is a frame cut from the camera's last recorded event**. It
+  isn't a live still.
+- Without a subscription it fails with **"Ring Protect subscription required for snapshots"**.
+- The video URL is refreshed at most every 3 min.
+- Live view in HA is WebRTC only. The Worker can't sensibly relay that, and it drains battery cameras.
+
+So snapshots through the HA Ring integration need **Ring Protect** and show **the last motion or ring**.
+An indoor room with no motion keeps showing an old frame.
+
+Two ways. **Q22 picked R-B (ring-mqtt)**:
+
+| | R-A. HA `ring` integration | **R-B. `ring-mqtt` (recommended)** |
+| --- | --- | --- |
+| What it is | HA core integration, cloud polling 60 s, Ring login + 2FA | Community bridge (tsightler/ring-mqtt, Docker), same Ring app API, login + 2FA via its web UI on port 55123. Publishes to an MQTT broker (a Mosquitto container); HA's MQTT integration makes camera entities |
+| Image | Last event recording frame | **Interval snapshots** of the current view |
+| Ring Protect | **Required** | **Not required** for interval snapshots (motion snapshots on battery cameras need Protect) |
+| Freshness | Only changes on a new event (cached up to 3 min) | Line-powered: default every **30 s**, settable per camera. Battery and low-power: the Ring app's **Snapshot Capture** interval, else 600 s |
+| Battery cameras | No extra drain | Short intervals mean much more battery use (ring-mqtt FAQ). Can't snapshot while recording or streaming |
+| Unofficial / can break | Yes | Yes |
+
+**Decision (Q22, 2026-10-24): R-B (ring-mqtt).**
+- Stephen **has Ring Protect**, so HA's built-in Ring integration (R-A) would also work. It would show
+  last-event images.
+- ring-mqtt stays the choice because it shows what the camera sees now (live interval snapshots).
+- The Worker side is identical either way (`camera_proxy` on four camera entities), so R-A is still a
+  fallback if ring-mqtt breaks.
+
+**Cadence and staleness:**
+- **Wired (living room, basement, back porch): 30 s**, ring-mqtt's default. If `reddencloud`'s CPU is
+  tight (§11.9 step 11), set 60–120 s per camera.
+- **Front door (battery, the only one):**
+  - ring-mqtt follows the Ring app's **Snapshot Capture** interval for it, and uses 600 s if none is set.
+    So set the interval in the Ring app (front door › Device settings › Snapshot Capture), not in
+    ring-mqtt.
+  - Suggested: **every 10–15 min**. That keeps the tile under the 15-minute greying with modest battery
+    drain.
+  - Go longer if the battery drops noticeably faster.
+  - Short intervals cost much more battery (ring-mqtt FAQ).
+  - The camera can't snapshot while it's recording. With Protect, motion events also produce snapshots.
+- `GET /api/controls/state` returns each camera's `updated` time from `/api/states/<camera>`
+  (4 subrequests).
+- The frame polls it every 5 s with Spotify state while Controls is visible. It fetches
+  `GET /api/controls/cam/:id` **only when that camera's `updated` changed**.
+- Tiles older than 15 min are greyed out with their age.
+
+**Bytes path (HA → tunnel → Worker → frame), with no storage:**
+- `GET /api/controls/cam/:id` fetches `/api/camera_proxy/<entity>` through the VPC binding and returns
+  `new Response(upstream.body)`. It streams, with no buffering, no KV, no D1 and
+  `Cache-Control: no-store, private`.
+- That's 1 subrequest per image and almost no CPU.
+- **No cross-request in-memory cache.** Isolates aren't guaranteed to be shared or kept, and the frame
+  already keeps the last image it showed.
+- The Cache API isn't used: the Workers docs give working `cache` operations only on custom domains, and we have none.
+
+**Budget:**
+- 4 cameras × at most 1 image per 30 s ≈ ≤ 240 image requests per 30 min of use, plus the 5 s state
+  polls already counted with Spotify.
+- That's well under 1% of 100k/day. Each state call is ≤ 6 subrequests of the 50.
+
+### 11.7 Indoor camera privacy (living room, basement)
+
+Q25 (2026-10-24): Stephen confirmed these defaults: off by default, 45 s reveal.
+
+The frame may sit in an office, so the indoor cameras have extra rules:
+- **Settings › Controls › "Show indoor cameras"**: **off by default**.
+  - Off: the indoor tiles read "Indoor cameras off" and the Worker **refuses** their images (403). The
+    setting is in D1, so this is enforced on the server, not just hidden.
+- On: indoor tiles start **covered** ("Tap to show").
+  - A tap reveals the camera for **45 s** (a setting, 30–60 s), then it covers itself again.
+  - Leaving Controls, idle return or night also cover it right away.
+  - The frame sends `?reveal=1` only after a tap.
+  - The Worker returns indoor images only when the setting is on, and logs nothing but the camera id
+    and status.
+- **Never at night** (no Controls polling at night), **never on Home**, **never in alerts or banners**.
+  Outdoor cameras aren't on Home or in alerts either. Cameras appear only on the Controls screen.
+- Changing the setting is a normal settings write (`/api/settings`, device auth). `/admin` has the same
+  switch.
+
+### 11.8 If the frame moves to Stephen's office
+
+Q24 (2026-10-24): Stephen is the office's IT person.
+- The frame on the office network is fine, and there's no 802.1X concern.
+- The city and the move date are still unknown. Not blocking: the Settings weather location covers the
+  city.
+- The AiMOR-lockdown confirmation and the NTP check below still apply.
+
+The design works off the home LAN: **the frame talks only to the Worker**, and only the Worker reaches
+home (Spotify's cloud; HA via the tunnel).
+
+Checked against the code:
+- **No LAN assumptions in the frame or the Worker.** `frame/src` calls only the Worker (relative URLs),
+  plus the kiosk's on-device asset server at `127.0.0.1:8765`.
+- **Health and heartbeats keep working.**
+  - The heartbeat is frame → Worker. `/api/health` is read by Chief from the Worker.
+  - "Frame offline > 1 h" then means "office Wi-Fi or power" (`docs/runbook-health.md`).
+- **Time zone stays America/Denver.** That's `TIME_ZONE` in `worker/wrangler.jsonc`, the
+  `America/Denver` defaults in `worker/src/{state,health,weather}.js` and `google/calendar.js`, and
+  `TZ` in `frame/src/main.js`. The 03:00 daily reload in `frame/src/version.js` is "Denver" time too.
+  Nothing changes unless the office is in another zone (Q9 already covers that).
+- **The weather location is a Denver default.** `WEATHER_LAT/LON` are `39.74/-104.99` in
+  `wrangler.jsonc`. After the move, set **Settings › Weather location** (§7.4) to the office. It's a
+  frame or `/admin` setting, with no deploy.
+
+Frame-side steps for the move (need Chief/Stephen; device-side changes need Stephen's OK):
+- **Wi-Fi:** kiosk controls (hold two fingers still for 1.5 s) → **Wi-Fi settings** → join the office
+  network. This is the kiosk's own menu, so no adb is needed.
+  - If the office Wi-Fi has a **sign-in page**, the kiosk's captive-portal mode shows it so the terms can
+    be accepted, then returns to the frame (`MainActivity.java`). It may come back every day or week.
+    The brightness bridge stays inactive on that page (§10).
+  - **Use a WPA2/WPA3 password network** (guest or IoT; Stephen runs the office network, Q24). An
+    802.1X (enterprise) login would put work credentials on the frame, which breaks the "only a device
+    token" rule.
+- **Before it joins any network outside home, confirm the AiMOR lockdown** (device plan §5 step 3:
+  `com.efercro.os.aimor` disabled, `netstat -an | grep :7806` empty). At home the Omada router could block
+  TCP 7806. At the office there's no such backstop.
+- **NTP:** the boot fixes set `NTP_SERVER=time.google.com`. If the office blocks UDP 123, the clock drifts
+  and HTTPS fails after long uptimes. Check that the clock is right a day after the move.
+- At home, the MAC reservation and router allow-list (device plan §5 steps 7–8) were in Omada. At the
+  office they're the office network's business.
+- **USB adb for device steps (phase D, P6 soak checks) needs a computer next to the frame.** Do those
+  before the move, or bring a laptop.
+- Spotify works the same from the office (cloud), with the Cast caveat in §11.5. Speakers at home can be
+  controlled from the office, so the device list shows names.
+
+### 11.9 H runbook: the HA stack on `reddencloud`
+
+The host is the Plex box **`reddencloud`**. It now has a static address ending **`.24`**, outside the
+DHCP range. There's no Omada DNS entry yet, so reach it as **`reddencloud.local`** (avahi/mDNS) or by the
+`.24` address.
+
+Host facts: Q23, plus Chief's update after the 2026-10-24 evening cleanup:
+
+| Fact | Value | Against the floor (§11.2) |
+| --- | --- | --- |
+| OS | Ubuntu 24.04.3 LTS | Supported LTS |
+| CPU | 2 cores | At the HA docs' 2 vCPU minimum, and **shared with Plex** |
+| RAM | 7.5 GiB total, **6.9 GiB available, 0 swap used** (after the cleanup; was 3.4 GiB and 1.8 GiB swap) | ≥ 2 GB available: passes easily |
+| Disk | 62 GB free on `/` | ≥ 10 GB: passes |
+| Docker | 27.3.1; `sredden` is in the `docker` group | Engine ≥ 23.0.0: passes. **No Docker install step, and no `sudo` for `docker`** |
+| Mode | Boots to `multi-user.target`: headless, SSH only | Good for a server |
+| Cleanup | Removed: Nextcloud, multipass, lxd, Chrome Remote Desktop, samba. Disabled: cups, bluetooth, ModemManager, gnome-remote-desktop | Frees RAM and CPU for Plex + HA |
+| Still running | NAS CIFS mount, Plex, Docker, NetworkManager | Expected |
+| Failed units | Only `systemd-networkd-wait-online` | **Harmless. Don't chase it:** NetworkManager manages the network, not systemd-networkd |
+
+**Resource plan.** Every container gets a memory cap with `memswap_limit` equal to `mem_limit`.
+Per the Compose reference, that gives the container no swap. It also gets a hard `cpus` cap and a low
+`cpu_shares` (256; the default is 1024), so Plex wins whenever both want the CPU. The caps are estimates,
+and step 11 below checks them against `docker stats`.
+
+| Container | Image (pinned) | `mem_limit` | `cpus` | Why that cap |
+| --- | --- | --- | --- | --- |
+| homeassistant | `homeassistant/home-assistant:2026.10.4` | **1g** | 1.0 | Enough for HA core + MQTT + four camera entities with the minimal recorder below. No Ring integration, no add-ons, no Bluetooth or USB. If HA is OOM-killed, it restarts (`unless-stopped`) and step 11 raises the cap to 1.25g |
+| mosquitto | `eclipse-mosquitto:2.1.2-alpine` | 64m | 0.25 | Two clients and a few dozen topics. Mosquitto itself uses a few MB |
+| ring-mqtt | `tsightler/ring-mqtt:5.9.3` | 384m | 0.5 | Node.js plus snapshot JPEGs. No live streams are used (RTSP port 8554 isn't published) |
+| cloudflared | `cloudflare/cloudflared:2026.10.3` | 128m | 0.25 | One tunnel, a few requests a minute while Controls is open |
+
+The caps total about 1.6 GiB against 6.9 GiB available, which leaves over 5 GiB for Plex and the page
+cache. **HA's 1 GB cap stays.** It's about 2× what a lean HA Container uses. With this much headroom, it's
+a guard against a leak, not a squeeze. If step 11 ever shows HA near the cap, raise it to 1.5g; that's
+safe now.
+
+The tags were checked on Docker Hub on 2026-10-24. Pull digests, for checking what's installed:
+- HA `sha256:23f4dfbb…e133`
+- Mosquitto `sha256:860aeb5d…bb0f`
+- ring-mqtt `sha256:4a4e0db4…f00a`
+- cloudflared `sha256:faa8e0a1…ff39`
+
+Tags rather than digests sit in the file, so updates stay a one-word edit.
+
+Compared with the HA docs' compose example, two things are deliberately left out:
+- `privileged: true`
+- the `/run/dbus` mount
+
+The docs include them for USB radios and Bluetooth, and nothing here uses either.
+
+**cloudflared: container, not a systemd service.**
+- The systemd install (`cloudflared service install <token>`) puts the token in the unit's `ExecStart`,
+  where `systemctl status` shows it (Cloudflare run-parameters docs). It also updates itself outside our
+  version pin.
+- The container is pinned, capped, and started and stopped with the rest of the stack. It reads
+  `TUNNEL_TOKEN` from an env file only `sredden` can read (mode 600).
+- The env file's value is visible to anyone with Docker access via `docker inspect`. On this box, that's
+  only Stephen.
+- It uses `network_mode: host`, so the VPC Service can point at `127.0.0.1:8123`.
+
+**Plex contention and swap:**
+- Plex keeps its default CPU weight, and the HA stack gets a low weight and hard caps. Everything here is
+  idle except a light poll, and the cameras are fetched only while the Controls screen is open.
+- **Prefer direct play in Plex.** Set clients to Original/Maximum quality. Two old cores can't transcode
+  1080p and do much else.
+- **ring-mqtt interval:** line-powered cameras snapshot every 30 s by default (Configuration-Details).
+  If step 11 shows load, set the interval per camera to 60–120 s. The frame shows each image's age
+  anyway.
+- **Swap:** 0 used after the cleanup (was 1.8 GiB), so this is now a low risk.
+  - Step 11 still watches `vmstat` `si`/`so`; near zero is fine.
+  - The caps keep this stack out of swap.
+  - If `docker info` warns "No swap limit support", the swap caps don't apply, so tell Chief.
+
+**Files.** Everything lives under `/opt/smart-frame-ha` and is written by the commands below:
+- `compose.yaml` (step 2; the repo copy `docs/controls-compose.yaml` is identical)
+- `mosquitto/config/mosquitto.conf` (step 3)
+- `mosquitto/config/passwd` (step 4)
+- `ring-mqtt/config.json` (step 5)
+- `cloudflared.env` (steps 5 and 12)
+- HA's `configuration.yaml` (step 8)
+
+Secrets are only:
+- the two MQTT passwords, which are random and never shown except HA's, once, in step 10
+- the tunnel token
+- Ring's token, which ring-mqtt writes itself
+
+Every secret file is readable only by root, or for `cloudflared.env` only by `sredden` (mode 600, or 700 for `passwd`), and none is ever committed.
+
+`ring-mqtt/config.json` has this shape (ring-mqtt's minimal config). Step 5 fills in the password:
+
+```json
+{
+  "mqtt_url": "mqtt://ringmqtt:<RINGMQTT_PASSWORD>@mosquitto:1883"
+}
+```
+
+**The MQTT credentials go inside `mqtt_url`.** ring-mqtt 5.9.3 ignores separate `mqtt_user` /
+`mqtt_pass` keys, so a config that uses them connects without auth and Mosquitto refuses it (fixed on
+`reddencloud` 2026-10-24). The password is `openssl rand -hex` output, so it needs no URL escaping.
+The file is written under `umask 077` (root-only).
+
+**Stephen's commands, in order** (on `reddencloud`, in a terminal):
+
+> **Run `sudo -v` first, before pasting any multi-line block.** It caches the sudo password for a few
+> minutes. Otherwise a sudo password prompt that appears mid-paste swallows the lines pasted after it,
+> and they never run (this happened on 2026-10-24). If a block was pasted over a prompt, re-run it.
+
+```bash
+sudo -v                                # cache sudo first, so no prompt eats pasted lines
+
+# 1. Folders
+sudo mkdir -p /opt/smart-frame-ha/{homeassistant,mosquitto/config,mosquitto/data,ring-mqtt}
+cd /opt/smart-frame-ha
+docker compose version                 # Compose v2 should print a version
+
+# 2. compose.yaml (no secrets)
+sudo tee /opt/smart-frame-ha/compose.yaml >/dev/null <<'EOF'
+name: smart-frame-ha
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: homeassistant/home-assistant:2026.10.4
+    network_mode: host                 # HA listens on :8123
+    environment:
+      TZ: America/Denver
+    volumes:
+      - /opt/smart-frame-ha/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    stop_grace_period: 60s             # lets HA close its database (HA docs)
+    mem_limit: 1g
+    memswap_limit: 1g                  # equal to mem_limit = no swap
+    cpus: 1.0
+    cpu_shares: 256
+    depends_on: [mosquitto]
+    logging: *logging
+
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:2.1.2-alpine
+    ports:
+      - "127.0.0.1:1883:1883"          # for HA on the host network only, not the LAN
+    volumes:
+      - /opt/smart-frame-ha/mosquitto/config:/mosquitto/config
+      - /opt/smart-frame-ha/mosquitto/data:/mosquitto/data
+    restart: unless-stopped
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.25
+    cpu_shares: 256
+    logging: *logging
+
+  ring-mqtt:
+    container_name: ring-mqtt
+    image: tsightler/ring-mqtt:5.9.3
+    ports:
+      - "55123:55123"                  # Ring login page; only runs while there's no token
+    volumes:
+      - /opt/smart-frame-ha/ring-mqtt:/data
+    restart: unless-stopped
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
+    cpu_shares: 256
+    depends_on: [mosquitto]
+    logging: *logging
+
+  cloudflared:
+    container_name: cloudflared
+    image: cloudflare/cloudflared:2026.10.3
+    network_mode: host                 # reaches HA at 127.0.0.1:8123
+    command: tunnel --no-autoupdate run
+    env_file: /opt/smart-frame-ha/cloudflared.env   # TUNNEL_TOKEN=…, mode 600, never committed
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
+    cpu_shares: 256
+    logging: *logging
+EOF
+
+# 3. Mosquitto config: auth on, anonymous off
+sudo tee /opt/smart-frame-ha/mosquitto/config/mosquitto.conf >/dev/null <<'EOF'
+listener 1883
+allow_anonymous false
+password_file /mosquitto/config/passwd
+persistence true
+persistence_location /mosquitto/data/
+log_dest stdout
+EOF
+
+# 4. Two random MQTT passwords (never printed), hashed in place by mosquitto_passwd -U
+HA_MQTT_PW=$(openssl rand -hex 16); RING_MQTT_PW=$(openssl rand -hex 16)
+printf 'homeassistant:%s\nringmqtt:%s\n' "$HA_MQTT_PW" "$RING_MQTT_PW" \
+  | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/mosquitto/config/passwd'
+docker run --rm -v /opt/smart-frame-ha/mosquitto/config:/mosquitto/config \
+  eclipse-mosquitto:2.1.2-alpine mosquitto_passwd -U /mosquitto/config/passwd
+sudo chown 1883:1883 /opt/smart-frame-ha/mosquitto/config/passwd
+sudo chmod 0700 /opt/smart-frame-ha/mosquitto/config/passwd
+printf '%s\n' "$HA_MQTT_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ha-mqtt-password.txt'
+
+# 5. ring-mqtt config (credentials inside mqtt_url; ring-mqtt 5.9.3 ignores mqtt_user/mqtt_pass),
+#    and an empty tunnel env file (filled in at step 12)
+printf '{\n  "mqtt_url": "mqtt://ringmqtt:%s@mosquitto:1883"\n}\n' \
+  "$RING_MQTT_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ring-mqtt/config.json'
+unset HA_MQTT_PW RING_MQTT_PW
+sudo install -m 600 -o "$USER" -g "$USER" /dev/null /opt/smart-frame-ha/cloudflared.env
+printf 'TUNNEL_TOKEN=\n' > /opt/smart-frame-ha/cloudflared.env   # owned by you so docker compose can read it without sudo
+
+# 6. Start everything except cloudflared, then check (no sudo: sredden is in the docker group;
+#    if `id -nG` doesn't list docker, log out and back in once)
+cd /opt/smart-frame-ha
+sudo chown "$USER": cloudflared.env && chmod 600 cloudflared.env   # only needed if step 5 ran as first sent
+docker compose pull
+docker compose up -d homeassistant mosquitto ring-mqtt
+docker compose ps                         # three containers running
+docker compose logs --tail=50 mosquitto ring-mqtt
+docker compose logs -f homeassistant      # wait until it settles, then Ctrl-C
+```
+
+7. **Onboarding:** from a computer on the home network, open **http://reddencloud.local:8123**, or the
+   `.24` address on port 8123 if `.local` doesn't resolve. There's no Omada DNS entry yet, so plain
+   `reddencloud` may not work. HA listens on all interfaces (host networking), so both work.
+   - Create the owner account and keep its password in the password manager.
+   - Home location: home. Time zone: America/Denver. Analytics: off.
+8. **Recorder** (HA recorder docs):
+   - Camera and image entities stay out of the database. Their state attributes carry short-lived
+     access tokens, and nothing needs their history.
+   - History is kept for 3 days.
+   - Commits are batched every 30 s to cut disk writes.
+
+   Add the snippet, then restart HA:
+
+   ```bash
+   sudo tee -a /opt/smart-frame-ha/homeassistant/configuration.yaml >/dev/null <<'EOF'
+
+   recorder:
+     purge_keep_days: 3
+     commit_interval: 30
+     exclude:
+       domains:
+         - camera
+         - image
+   EOF
+   cd /opt/smart-frame-ha && docker compose restart homeassistant
+   ```
+9. **Ring login (2FA):** open **http://reddencloud.local:55123** (or the `.24` address), enter the Ring email and password, then the
+   2FA code. Then run `docker compose logs --tail=50 ring-mqtt`, which should list the four cameras.
+   The page stops once the token is saved in `ring-mqtt/ring-state.json`. Treat that file as a secret,
+   since it's full Ring account access (ring-mqtt docs). It holds the **Ring refresh token**, so lock it
+   down right after the login:
+
+   ```bash
+   cd /opt/smart-frame-ha && sudo chmod 600 ring-mqtt/ring-state.json
+   ```
+10. **MQTT integration:** HA › Settings › Devices & services › Add integration › **MQTT**.
+    - Broker `127.0.0.1`, port `1883`, username `homeassistant`.
+    - Password: run `sudo cat /opt/smart-frame-ha/ha-mqtt-password.txt`, paste it, then `clear`.
+    - The four Ring cameras then appear as MQTT devices, each with a camera entity.
+    - If a battery camera has no image yet, that's expected (§11.6).
+11. **A day later, during a Plex transcode**, run:
+
+    ```bash
+    docker stats --no-stream
+    free -h
+    vmstat 5 6
+    docker inspect -f '{{.Name}} OOM={{.State.OOMKilled}} restarts={{.RestartCount}}' \
+      homeassistant mosquitto ring-mqtt
+    ```
+
+    Send Chief only the numbers. Pass:
+    - HA under ~700 MiB
+    - no `OOM=true`
+    - `si`/`so` near 0
+    - Plex playback smooth
+
+    Otherwise:
+    - raise HA's cap to 1.25g
+    - set ring-mqtt to 60–120 s
+    - prefer direct play
+
+    **DONE: passed 2026-10-24 8:36 PM MT.** HA ~400 MiB, ring-mqtt 176 MiB, mosquitto 3 MiB, under 1% CPU,
+    swap 0, no OOM. The caps stay as they are.
+12. **Tunnel** (§14 step 13): paste the token without echoing it, then start cloudflared.
+
+    ```bash
+    read -rsp 'Tunnel token: ' T; echo
+    printf 'TUNNEL_TOKEN=%s\n' "$T" > /opt/smart-frame-ha/cloudflared.env; unset T   # file is yours, mode 600 (step 5)
+    cd /opt/smart-frame-ha && docker compose up -d cloudflared
+    docker compose logs --tail=30 cloudflared   # look for "Registered tunnel connection"
+    ```
+
+    The VPC Service points at `127.0.0.1`, port 8123, http.
+    - If the Worker gets HTTP 400 from HA: since HA 2026.8, reverse-proxy settings are set in the UI, at
+      **Settings › System › Network › HTTP server**. Turn on "Trust X-Forwarded-For" and add `127.0.0.1`
+      to Trusted proxies.
+
+**Changing one MQTT user's password later** (e.g. `ringmqtt` or `homeassistant`). Update the existing
+`passwd` file in place with `mosquitto_passwd -b`; don't rewrite the file, or the other user's entry is
+lost. Then restore the owner and mode from step 4:
+
+```bash
+sudo -v
+NEW_PW=$(openssl rand -hex 16)                     # never printed
+docker run --rm -v /opt/smart-frame-ha/mosquitto/config:/mosquitto/config \
+  eclipse-mosquitto:2.1.2-alpine mosquitto_passwd -b /mosquitto/config/passwd ringmqtt "$NEW_PW"
+sudo chown 1883:1883 /opt/smart-frame-ha/mosquitto/config/passwd
+sudo chmod 0700 /opt/smart-frame-ha/mosquitto/config/passwd
+# For ringmqtt: rewrite mqtt_url with the new password (same umask 077 as step 5)
+printf '{\n  "mqtt_url": "mqtt://ringmqtt:%s@mosquitto:1883"\n}\n' \
+  "$NEW_PW" | sudo sh -c 'umask 077; cat > /opt/smart-frame-ha/ring-mqtt/config.json'
+unset NEW_PW
+cd /opt/smart-frame-ha && docker compose restart mosquitto ring-mqtt
+```
+
+For `homeassistant` instead: use `homeassistant` as the user above, skip the `config.json` lines, write
+the new password to `ha-mqtt-password.txt` as in step 4, restart `mosquitto`, and update the password in
+HA › Settings › Devices & services › MQTT › Reconfigure.
+
+**Updates:** edit a tag in `compose.yaml` (`sudo` to edit, since it's root-owned), then run `docker compose pull && docker compose up -d`.
+
+**`sudo docker …` from steps sent earlier still works.** It's just not needed now.
+Chief proposes HA tag bumps monthly.
+
+**Backup:** `/opt/smart-frame-ha` holds everything, including the Ring and MQTT secrets, so back it up
+only to somewhere private.
 
 ## 12. v1.1 (calendar selection): shipped
 
@@ -892,6 +1475,21 @@ v2 builds on it as merged and doesn't reopen it.
 
 ## 13. Phases
 
+**Status (2026-10-24 7:20 PM MT): Stephen approved the Controls plan. H and P2 are approved to build
+after P1 and P1b, in plan order.**
+
+**Gate (updated 2026-10-24 7:47 PM MT):**
+- The `reddencloud` cleanup is **done**.
+- Chief has sent Stephen **§11.9 steps 1–10** (files, start, onboarding, recorder, Ring login, MQTT).
+  Those may run now.
+- **Step 11 (load check) is DONE:** passed 2026-10-24 8:36 PM MT (HA ~400 MiB, ring-mqtt 176 MiB,
+  mosquitto 3 MiB, under 1% CPU, swap 0, no OOM). §11.9 steps 1–11 are all done.
+- **Step 12 (tunnel + `cloudflared`, §14 step 13) stays gated** until Chief sends it.
+- **Live (per Chief, 2026-10-24 8:24 PM MT):** the stack is up on `reddencloud`, ring-mqtt is connected
+  to Mosquitto (after the `mqtt_url` credentials fix in §11.9), and the Ring devices appear in HA.
+
+Agent work for H and P2 that needs no box (code, tests, docs) can go ahead in plan order.
+
 Re-phased 2026-10-24 along the split Chief suggested. Each phase is one or more small PRs, because main
 auto-deploys. Everything up to P1b ships before Home Assistant exists, and only phase D touches the
 device.
@@ -902,8 +1500,8 @@ device.
 | **F Reflection freshness** (optional, standalone) | §8.5 `reflection_weekly_stale` / `reflection_monthly_stale` in `buildHealth`, runbook-health codes, and the §8.4 routine handed to Chief | 0.25 day | Unit tests for every case in §8.5. `/api/health` JSON shape in worker tests. No reflection text in health output or logs (canary test) |
 | **P1 Nav, Home taps, Calendar, Weather, Settings** | §2.6 A/B removal (first commit). §2 schedule, `nav.js`, the 8-slot rail with `features.*` flags, widget taps, hit sizes. **The batched Google scope change (§4.1) in the first deploy.** §7 Settings screen (schedule, night dim, idle, weather location, calendar selection), `settings` table, guards, `/admin` Settings and reset, geocoding proxy. §3 Calendar views, `/api/calendar`, full-window cache. §5 Weather screen, `/api/weather` | 3–3.5 days | `nav.js` tests: night tap → Home + rail and never a widget; widget tap → screen; off-widget tap → 30 s peek; idle → Home or night per schedule; DST dates 2026-11-01 and 2027-03-14. `schedule.test.js` rewritten (§2.6). Settings worker tests: device auth, unknown key/field, each bound, merge-not-replace, 61st write/hour → 429, `updated_by`, geocoding proxy (mocked, query not logged). Calendar tests as before. `normalizeWeather` tests (24 hourly, 10 daily, missing → null, Home `next3` unchanged), still exactly 1 cache + 1 meta write per weather refresh. OAuth test: the calendar grant asks for the three scopes, and `tasks_scope_missing` shows until reconnect. e2e (Chromium 106): Home, night, each widget tap, rail with 6 and 8 items (no label overflow, nothing in the Menu zone), Settings sheets, Calendar views, Weather, **hit-size check** (§2.4), no console errors. `check` (Chrome 106 compat, JS ≤ 60 KB gz). On-frame check (PLAN.md §10), including the soft keyboard. gitleaks clean |
 | **P1b Tasks, Alerts, Reflection, Photos** | §4 Tasks (lists table, `/api/tasks`, check-off if Q10 = `tasks`, Home "Due today" line). §9 Alerts (`alerts.js`, banner, chime, quiet hours, Settings sheet, `calendars.alert`). §8.1–8.2 Reflection screen, `reflection_guides` with migration from `id = 1`, retention 6. §6 Photos screen, favorite/hide | 3–4 days | Tasks worker tests (mocked Google): selection bounds (≤ 10, known ids), ≤ 37 subrequests per cron run, cache write skipped when unchanged, check-off only for cached ids in selected lists, a non-completed patch body refused, 401 without a device token, no titles in logs. `alerts.js` tests (§9.5). Reflection tests: migration, republish, 7th guide prunes, overlap, 401, no text in logs. Hidden photos leave the manifest. e2e: Tasks tabs and check-off with undo, alert banners on three screens and none at night, Reflection, Photos. On-frame check, including a **test chime**. gitleaks clean |
-| **H (prerequisite) Home Assistant** | [S] install the HA OS VM, onboard, add integrations (§11.1) one by one, create the `frame` user and token. Agent writes `docs/runbook-controls.md`. [S] or Chief create the tunnel and VPC Service. Worker: `vpc_services` binding, `HA_TOKEN` secret, "HA status" on `/admin` | 0.5 day agent + 2–4 h [S] (+ Ring 2FA, Spotify app) | `/admin` shows "HA reachable, version x" through the binding. No DNS records, and the tunnel can't be reached from the internet. The token appears nowhere but the Worker secret (gitleaks, log canary test) |
-| **P2 Controls** | §11.3 allowlist table and `/admin` editor, `/api/controls` state, actions, camera proxy. §11.4 screen. Spotify Connect targets (§11.5). `features.controls` on | 2–3 days | Worker tests with a mocked HA binding: non-allowlisted id/action → 403; lock and garage kinds refused; HA down → 503 + banner; no HA token or entity names in logs. Optimistic toggle and revert tests. Chromium 106 e2e of Controls (mock data). On the frame: toggle a Wemo plug and a light, run a Harmony activity, move Spotify to a Connect speaker and pause it, Ring snapshots refresh. gitleaks green |
+| **H (prerequisite) Home Assistant for Ring** | **Partly gated (see Status above): §11.9 steps 1–11 done; step 12 (tunnel) waits for Chief.** [S] runs the §11.9 runbook on `reddencloud` (Docker 27.3.1 already there): the compose stack (HA Container, Mosquitto, ring-mqtt, cloudflared, with memory and CPU caps; ring-mqtt per Q22), onboarding, the minimal recorder, Ring login + 2FA, the MQTT integration, the `frame` user and token, and a next-day resource check. Agent copies §11.9 into `docs/runbook-controls.md` and `docs/controls-compose.yaml` (no secrets; the tunnel token, MQTT passwords and Ring token stay in root-only files on the box). [S] or Chief create the tunnel and VPC Service. Worker: `vpc_services` binding, `HA_TOKEN` as a GitHub secret copied by `worker-secrets.yml` (optional in `tools/set-worker-secrets.mjs` until set), "HA status" on `/admin` | 0.5 day agent + 1–2 h [S] | `/admin` shows "HA reachable, version x" and the four camera entities through the binding. No DNS records, and the tunnel can't be reached from the internet. The token appears nowhere but the GitHub/Worker secret (gitleaks, log canary test) |
+| **P2 Controls (Spotify + Ring)** | §11.5 Spotify: `worker/src/spotify/` OAuth on `/admin` (grant `spotify` in `grants`, `SPOTIFY_CLIENT_SECRET` via `worker-secrets.yml`), `/api/spotify/state` and actions, `spotify_reauth_due` in health. §11.6 cameras: `controls_cams` table + `/admin` editor, `/api/controls/state`, streaming `/api/controls/cam/:id`. §11.7 indoor setting and tap-to-reveal. §11.4 screen. `features.controls` on | 1.75–2.25 days | Worker tests (mocked Spotify and HA binding): the requested scopes are exactly the two; `state` checked on the callback; tokens encrypted and never logged; refresh uses Basic auth and keeps a rotated refresh token; 429 and `QUOTA_EXCEEDED` → backoff per `Retry-After`; 403 → "Premium needed"; transfer refused for an id not in the last device list; last device remembered by name after transfer, Play with no active device transfers to it, absent device → 409 `device_absent` and the frame's "not available" message; `spotify_reauth_due` from day 168. Cameras: unknown id → 404; indoor image → 403 while the setting is off; no POST path to HA; HA down → 503; images `no-store`; zero KV writes; no token or entity names in logs. e2e (Chromium 106, mock data): Controls with and without Spotify connected; polling stops when hidden, idle or at night; an image is fetched only when `updated` changes; indoor cover, reveal and auto-hide at 45 s; no camera on Home or in alerts. On the frame: move Spotify to a Connect speaker, pause, skip, volume; four snapshots refresh; an indoor reveal hides itself. gitleaks green |
 | **D Device brightness (with v1 P6; needs Stephen's OK)** | §10: `kiosk/framehw.patch` + `docs/runbook-kiosk.md` (origin check, portal-mode check, clamp). `backlight.js` wired to `FrameHW`, `brightness.js`, the Brightness settings sheet. [S]/[G] build and `adb install -r` at the frame only after Stephen's OK (Q13) | 1 day agent (0.5 kiosk + 0.5 frame) + ~30 min at the frame | `brightness.js` tests: night override, manual, auto curve, clamps, hysteresis, ramp, no bridge → no-op. e2e with a fake `window.FrameHW`: Brightness sheet, live lux line, read-only without the bridge. On the frame: the backlight follows a covered and lit sensor; at night it drops to `nightPct` and returns to the system value when the kiosk exits; on a non-frame page (e.g. the Wi-Fi portal) the bridge does nothing |
 
 **Effort per phase** (agent days; [S] time is separate):
@@ -913,10 +1511,10 @@ device.
 | F Freshness | – | 0.25 | 0.25 | 0 | |
 | P1 | 2.5–3 (all of Phase 1) | 2.5–3 (P1a) | **3–3.5** | **+0.5** | Weather moves in; 8-slot rail |
 | P1b | – | 1.75–2.25 | **3–4** | **+1.25 to +1.75** | Tasks (+1–1.25) and Alerts (+0.75–1) added; Weather moved out (−0.5) |
-| H | 0.5 | 0.5 | 0.5 | 0 | |
-| P2 Controls | 2–3 | 2–3 | 2–3 | 0 | The Spotify finding changes nothing in scope |
+| H | 0.5 | 0.5 | 0.5 | 0 | One integration instead of nine, but a compose file and runbook for HA Container (now written in §11.9). [S] time drops from 2–4 h to 1–2 h: Docker is already installed, and the commands are exact |
+| P2 Controls | 2–3 | 2–3 | **1.75–2.25** | **−0.25 to −0.75** | Scope cut to Spotify + Ring (2026-10-24). No lights, plugs, media players or HA service calls; direct Spotify OAuth adds a little. Inside P2: Spotify 0.75–1, cameras + privacy 0.5–0.75, screen + e2e 0.5 |
 | D Brightness | – | – | **1** | **+1** | New, tied to P6 |
-| **TOTAL after v1.1** | **5–6.5** | **7–9** | **9.75–12.25 agent days** | **+2.75 to +3.25** (+4.75 to +5.75 vs the original) | Plus [S] time: 2–4 h for HA, ~30 min for phase D at the frame, and minutes for the reconnect and the checks |
+| **TOTAL after v1.1** | **5–6.5** | **7–9** | **9.5–11.5 agent days** | **+2.5** (+4.5 to +5 vs the original) | Was 9.75–12.25 before the Controls revision (−0.25 to −0.75, all from P2). Plus [S] time: 1–2 h for HA, ~15 min for the Spotify app, ~30 min for phase D at the frame, and minutes for the reconnect and the checks |
 
 Breakdown inside P1 and P1b:
 
@@ -964,27 +1562,52 @@ Breakdown inside P1 and P1b:
 6. **Phase D, with v1 P6 (only with Stephen's OK, Q13):** approve the kiosk rebuild with the `FrameHW`
    bridge. [S]/[G] at the frame: `adb install -r`, choose Home → **Always** again if Android asks, then a
    short calibration with the room dark and then bright.
-7. **Identify the smart bulbs**: the brand and model of each bulb or lamp (Alexa app → Devices shows the
-   brand or skill), and **whether a Philips Hue Bridge exists** (a square or round white box wired to the
-   router).
-8. Say whether the Wemo plugs still respond to Alexa. They shouldn't since 2026-01-31.
-9. Choose the HA host: a VM on the MIGUEL PC by default, or ReddenNAS if its model supports VMs or Docker.
-10. Install HA OS, create the owner account, and add these integrations:
-    - Wemo
-    - Hue (press the bridge button)
-    - Harmony (enable XMPP if asked)
-    - Samsung TV (accept the prompt on the TV)
-    - Roku
-    - Android Debug Bridge for the Fire TV (accept the ADB prompt)
-    - Cast
-    - Spotify (create a Spotify developer app; **Premium is confirmed**)
-    - Ring (login + 2FA)
-11. Create the non-admin HA user `frame` and its long-lived token. Hand it to Chief to set as the Worker
-    secret. It must never be pasted into chat logs or files.
-12. Create the Cloudflare Tunnel (the cloudflared add-on on HA OS) and the Workers VPC Service in the
-    dashboard. Chief can guide, and it needs Connectivity Directory Admin.
-13. Pick which lights, players, **Spotify speakers** and cameras go on the Controls screen (the Controls
-    editor on `/admin`). Play something on each speaker once so Spotify lists it (Q18).
+7. **`reddencloud` status** (§13 Status): the cleanup is done, and Chief has sent §11.9 steps 1–10, so
+   steps 8–11 below are done (step 11 passed 2026-10-24 8:36 PM MT). Step 13 (tunnel) waits for Chief. Q18 and Q22–Q25 are
+   all answered.
+8. **Write the files on `reddencloud`** (§11.9 commands 1–5). Q23 is answered and Docker 27.3.1 is
+   already installed, so there's no check or install step. The commands create `/opt/smart-frame-ha`,
+   `compose.yaml`, the Mosquitto config with two random passwords, the ring-mqtt config and an empty
+   tunnel env file. No secret is typed or shown.
+9. **Start and onboard** (§11.9 commands 6–8): `docker compose up -d` for HA, Mosquitto and
+   ring-mqtt, check the logs, then open **http://reddencloud.local:8123** (or the `.24` address) from the home network. Create the owner
+   account (time zone America/Denver), add the recorder snippet and restart HA.
+10. **Ring and MQTT** (§11.9 steps 9–10): sign in to Ring with 2FA at **http://reddencloud.local:55123**,
+    run `sudo chmod 600 /opt/smart-frame-ha/ring-mqtt/ring-state.json` (it holds the Ring refresh token), then add HA's MQTT integration (`127.0.0.1:1883`, user `homeassistant`) and check that the four cameras
+    appear. In the Ring app, set the front door's (battery) **Snapshot Capture** to every 10–15 min. The
+    wired three stay at 30 s (§11.6).
+11. **DONE 2026-10-24 8:36 PM MT** (passed: HA ~400 MiB, ring-mqtt 176 MiB, mosquitto 3 MiB, under 1% CPU,
+    swap 0, no OOM). Was: **next day, during a Plex transcode** (§11.9 step 11): send Chief the `docker stats`, `free -h` and
+    `vmstat` numbers. Chief adjusts caps or the snapshot interval if needed.
+12. **HA `frame` user:** create a non-admin user `frame`, then a long-lived token for it. Store it as the
+    GitHub secret `HA_TOKEN` yourself (`gh secret set HA_TOKEN` or the repo's Settings › Secrets), then
+    tell Chief to run `worker-secrets.yml`. Never paste it into chat, files or logs.
+13. **Gated until Chief sends it. Tunnel and VPC Service**, with Chief's guidance (needs Connectivity Directory Admin; box side is §11.9 step 12):
+    Zero Trust › Networks › Tunnels › create a tunnel, save its token with §11.9 step 12
+    (`cloudflared.env`, mode 600), then create a Workers VPC Service pointing at HA (`127.0.0.1:8123`). No public
+    hostname and no DNS records.
+14. **Spotify developer app** (~15 min, signed in with the Premium account at
+    https://developer.spotify.com/dashboard):
+    - Accept the Developer Terms if asked. Click **Create app**.
+    - Give it a plain name and description, e.g. "Frame controls" (they show on the consent screen).
+    - Redirect URI: `https://smart-frame.sredden.workers.dev/admin/spotify/callback` (exact). Tick **Web API**
+      if asked which APIs are used. Save.
+    - Leave it in **Development mode**. As the owner, Stephen is the only user. If Spotify answers 403 at
+      connect, add his account email under **User Management**.
+    - Settings: give Chief the **Client ID** (not a secret; it goes in `wrangler.jsonc`). Store the
+      **Client secret** as the GitHub secret `SPOTIFY_CLIENT_SECRET` yourself, then tell Chief to run
+      `worker-secrets.yml`.
+15. **After P2 deploys:** `/admin` › **Connect Spotify** and approve. Then on `/admin` › Controls, label
+    the four cameras and mark living room and basement as indoor. In the Alexa app, check that Spotify is
+    linked (ideally the default music service) on the Echo Dot "Stephen's Office". Say "Alexa, Spotify
+    Connect" to it once, then pick it in "Play on…" on the frame so it's remembered (Q18). Reconnect Spotify every 6 months when `/admin` asks.
+16. **If the frame moves to the office** (frame-side, with Chief; device changes need Stephen's OK):
+    - Before the move: confirm the AiMOR lockdown (device plan §5 step 3, `:7806` empty). Do any USB adb
+      work first (phase D, P6 checks).
+    - At the office: kiosk controls (hold two fingers still for 1.5 s) › Wi-Fi settings › join a password
+      (guest or IoT) network that Stephen sets up (Q24). Accept the sign-in page if the kiosk shows one.
+    - Settings › Weather location → the office. A day later, check the clock and that `/api/health` shows
+      no `frame_offline`.
 
 ## 15. Open questions
 
@@ -1001,6 +1624,20 @@ Breakdown inside P1 and P1b:
 - Rail order: 8 items, decided 2026-10-24 (§2.2).
 - Spotify Premium: yes.
 - Frame camera and microphone: there are none (§1.1).
+- **Controls scope and HA host** (Stephen via Chief, 2026-10-24 7:01 PM MT; §11):
+  - Q14: ReddenNAS is a Buffalo LinkStation LS220DE (ARM). Ruled out.
+  - Q15: not MIGUEL. HA Container goes on the Plex Ubuntu Mac. The OpenClaw Mac is never used.
+  - Q16 (bulbs), Q17 (Wemo stays on Alexa), Q19 (Samsung Frame TV left out), Q21 (Harmony unused):
+    closed, because they're out of scope.
+  - Q20: all four Ring cameras (front door, living room, basement, back porch). The indoor two follow §11.7.
+- **Controls answers** (Stephen via Chief, 2026-10-24 7:20 PM MT; plan approved):
+  - Q18: the Echo Dot "Stephen's Office", with last-used-device memory.
+  - Q22: Protect yes; front door battery, the rest wired; ring-mqtt.
+  - Q24: office network fine (Stephen is the IT person); city and date TBD.
+  - Q25: defaults confirmed.
+- **Q23, HA host facts** (Chief, 2026-10-24 7:11 PM MT; updated 7:47 PM after the cleanup): `reddencloud`,
+  static `.24` (`reddencloud.local`), Ubuntu 24.04.3, headless, 2 cores, 7.5 GiB RAM (6.9 GiB available,
+  0 swap), 62 GB free, Docker 27.3.1 (`sredden` in the `docker` group). Runbook in §11.9.
 
 The rest, renumbered:
 
@@ -1028,31 +1665,58 @@ The rest, renumbered:
   "Due today" alert at 09:00, and every selected calendar alerting until switched off?
 - **Q13** May the kiosk app be changed and reinstalled with the `FrameHW` brightness bridge (§10), during
   P6?
-- **Q14** What's the ReddenNAS model, and can it run a VM or Docker with host networking? If not, HA goes
-  on MIGUEL.
-- **Q15** Is MIGUEL the always-on Windows PC used for the Omada and Fire TV work, and can it host a VM with
-  ~2 GB of RAM 24/7?
-- **Q16** What are the smart bulb brands and models, and is there a Hue Bridge? Cloud-only bulbs may not
-  be controllable.
-- **Q17** Do the Wemo plugs still work through Alexa today? Belkin ended Alexa support on 2026-01-31.
-- **Q18** Which speakers should Spotify target (the Cast speakers, the Samsung TV, the Roku Streambar)?
-  Is each one signed in to Spotify or castable?
-- **Q19** What's the Samsung TV model? It decides whether turn-on works or needs Wake-on-LAN. Is it the
-  same set as the Fire TV Edition?
-- **Q20** Which Ring cameras belong on the frame: all four, or only the front door?
-- **Q21** Should the Harmony Hub stay in use, given Logitech no longer makes Harmony? It works fine
-  locally today.
+- ~~**Q14** ReddenNAS model~~ Resolved: LS220DE (ARM), ruled out.
+- ~~**Q15** MIGUEL as HA host~~ Resolved: not MIGUEL. The Plex Ubuntu Mac (Q23).
+- ~~**Q16** Smart bulbs~~ Closed: lights are out of scope.
+- ~~**Q17** Wemo via Alexa~~ Closed: Wemo stays on Alexa, out of scope.
+- ~~**Q18** Spotify targets~~ Resolved: mostly the Echo Dot "Stephen's Office" at the office (§11.4–11.5).
+- ~~**Q19** Samsung TV model~~ Closed: it's a Samsung Frame TV and is left out.
+- ~~**Q20** Which Ring cameras~~ Resolved: all four.
+- ~~**Q21** Harmony~~ Closed: unused, out of scope.
+- ~~**Q22** Ring~~ Resolved: Protect yes; front door is battery, the other three wired; ring-mqtt (§11.6).
+- ~~**Q23** Plex Mac check results~~ Resolved: `reddencloud` (`.24`), Ubuntu 24.04.3, 2 cores, 7.5 GiB RAM
+  (6.9 GiB available), 62 GB free, Docker 27.3.1 (§11.9).
+- ~~**Q24** Office network~~ Resolved: Stephen is the office IT person, so no 802.1X concern. City and
+  move date still unknown (not blocking; Settings weather location).
+- ~~**Q25** Indoor defaults~~ Resolved: yes (off, 45 s reveal).
 
 ## 16. Risks
 
-- **Workers VPC is beta**: terms or pricing may change. Fallback E (HA polls the Worker) needs no
-  Cloudflare beta feature.
-- **Ring**: unofficial cloud integration, 2FA, can break; snapshots only.
-- **Cloud-only bulbs**: may not be controllable from HA without a vendor cloud integration.
-- **Harmony**: discontinued hardware; works locally until it doesn't.
-- **Wemo**: no vendor support; a factory-reset plug needs pywemo setup to rejoin Wi-Fi.
-- **CPU on the free plan**: 22-calendar merges and Controls state calls must stay under 10 ms CPU; measure
-  in P1/P2 and back off cadence if needed.
+- **Workers VPC is beta** (still beta and free in the 2026-09/10 docs): terms or pricing may change.
+  Fallback E (HA polls the Worker) works for small state, but not for camera images: those would need
+  storage over the KV write limit. Without VPC, the Ring card would go away while Spotify keeps working.
+- **Ring is unofficial** (ring-mqtt, or HA's `ring`), uses the Ring app API with 2FA, and can break or
+  need a fresh login. **HA's `ring` snapshots need Ring Protect** and show only the last event (§11.6).
+  Battery cameras give stale images, and short intervals drain them.
+- **Indoor camera privacy** on a frame in an office: the server enforces "off by default", and reveals
+  are short and tap-only (§11.7). The risk left is someone tapping while the setting is on.
+- **Spotify Development Mode**: Premium is needed for the owner and for control. The 6-month refresh token
+  means a reconnect twice a year (health code warns). The per-developer quota is shared, and Spotify has
+  changed dev-mode rules twice since 2025. Cast speakers may be missing from the device list (§11.5).
+- **`reddencloud` is shared, and CPU is the limit** (2 cores, shared with Plex).
+  - After the cleanup, memory is no longer the concern: 6.9 GiB available, 0 swap. HA's 1 GB cap leaves
+    plenty of room to raise it.
+  - Plex transcodes still compete for CPU.
+  - Swapping is now unlikely.
+  - It's old Mac hardware: sleep, power-on after an outage.
+
+  Mitigations (§11.9):
+  - memory caps with no swap for the stack
+  - low CPU weight and hard `cpus` caps
+  - the minimal recorder
+  - Plex direct play
+  - a longer ring-mqtt interval if needed
+  - a next-day `docker stats`/`vmstat` check
+
+  If the box dies, only the Ring card is lost. `/opt/smart-frame-ha` is the one folder to back up
+  privately.
+- **Office network**: Stephen runs it (Q24), so 802.1X and policy aren't a concern. A sign-in page that
+  comes back or blocked NTP still could be. §11.8 lists the checks, and the AiMOR lockdown must be
+  confirmed first.
+- **Echo not listed**: an idle Echo can drop out of Spotify's device list. The frame says how to wake it
+  ("Alexa, Spotify Connect"), and Play never falls back to another device on its own (§11.5).
+- **CPU on the free plan**: 22-calendar merges and Controls state calls must stay under 10 ms CPU. Camera
+  images are streamed, not parsed. Measure in P1/P2 and back off cadence if needed.
 - **Privacy**: calendar names, event titles and entity names must never reach logs, git, PRs or
   fixtures (synthetic fixtures only; log canary tests as in v1).
 - **Frame-side settings**: a bad value could make the frame unusable. The mitigations are the bounds,
@@ -1086,17 +1750,55 @@ The rest, renumbered:
 - HA webhook trigger (local_only, ID is the only secret): https://www.home-assistant.io/docs/automation/trigger/#webhook-trigger
 - HA REST API (`camera_proxy`, admin-only endpoints): https://developers.home-assistant.io/docs/api/rest/
 - HA users (admin vs non-admin): https://www.home-assistant.io/docs/configuration/user-configuration/
-- HA install options: https://www.home-assistant.io/installation/
-- Wemo: https://www.home-assistant.io/integrations/wemo/ · Belkin end of support: https://www.belkin.com/support-article/?articleNum=335419 · pywemo unaffected: https://github.com/pywemo/pywemo/issues/773
-- Hue: https://www.home-assistant.io/integrations/hue/
-- Harmony: https://www.home-assistant.io/integrations/harmony/
-- Samsung TV: https://www.home-assistant.io/integrations/samsungtv/
-- Roku: https://www.home-assistant.io/integrations/roku/
-- Fire TV via ADB: https://www.home-assistant.io/integrations/androidtv/ · Android TV Remote (not Fire TV): https://www.home-assistant.io/integrations/androidtv_remote/
-- Cast: https://www.home-assistant.io/integrations/cast/
-- Spotify (Premium): https://www.home-assistant.io/integrations/spotify/
-- Ring: https://www.home-assistant.io/integrations/ring/
-- Alexa Media Player (unofficial API): https://github.com/alandtse/alexa_media_player
+- HA install options: https://www.home-assistant.io/installation/ · HA Container on Linux (Docker Engine
+  ≥ 23.0.0, not Docker Desktop, `--network=host`, compose, no apps): https://www.home-assistant.io/installation/linux ·
+  32-bit and Core/Supervised deprecation: https://www.home-assistant.io/blog/2025/05/22/deprecating-core-and-supervised-installation-methods-and-32-bit-systems/
+- Ring in HA (cloud polling, TCP 5228, `last_recording` needs Ring Protect): https://www.home-assistant.io/integrations/ring/ ·
+  source: camera image from the last recording, "Ring Protect subscription required for snapshots", 3 min URL refresh:
+  https://github.com/home-assistant/core/blob/dev/homeassistant/components/ring/camera.py ·
+  https://github.com/home-assistant/core/blob/dev/homeassistant/components/ring/strings.json
+- ring-mqtt (Docker, needs an MQTT broker, 2FA web UI on 55123): https://github.com/tsightler/ring-mqtt/wiki/Installation-(Docker) ·
+  snapshot intervals (30 s line-powered; Snapshot Capture or 600 s low-power): https://github.com/tsightler/ring-mqtt/wiki/Configuration-Details ·
+  low-power cameras, battery use, motion snapshots need Protect: https://github.com/tsightler/ring-mqtt/wiki/Frequently-Asked-Questions-(FAQ) ·
+  HA MQTT camera: https://www.home-assistant.io/integrations/camera.mqtt/
+- HA Container compose (`stop_grace_period: 60s`, `network_mode: host`, `TZ`): https://www.home-assistant.io/installation/linux ·
+  recorder (`purge_keep_days` default 10, `commit_interval` default 5, `exclude.domains`): https://www.home-assistant.io/integrations/recorder/ ·
+  reverse-proxy settings in the UI since 2026.8: https://www.home-assistant.io/integrations/http/ ·
+  MQTT integration: https://www.home-assistant.io/integrations/mqtt/
+- Images and tags (checked 2026-10-24): https://hub.docker.com/r/homeassistant/home-assistant/tags ·
+  https://hub.docker.com/_/eclipse-mosquitto · https://hub.docker.com/r/tsightler/ring-mqtt/tags ·
+  https://hub.docker.com/r/cloudflare/cloudflared/tags · https://github.com/home-assistant/core/releases ·
+  https://github.com/tsightler/ring-mqtt/releases · https://github.com/cloudflare/cloudflared/releases
+- Spotify on Alexa (linking, default service, Echo Dot supported): https://support.spotify.com/us/article/spotify-on-alexa-devices/ ·
+  "Alexa, Spotify Connect": https://newsroom.spotify.com/2018-12-14/how-to-set-up-spotify-on-your-amazon-alexa-enabled-device/ ·
+  https://community.spotify.com/t5/FAQs/How-to-play-music-with-Alexa/ta-p/5283510 ·
+  https://community.spotify.com/t5/Other-Podcasts-Partners-etc/Spotify-Connect-can-t-find-Alexa-devices/td-p/5606285
+- Mosquitto config (`allow_anonymous`, `password_file`, `persistence_location`, `log_dest`):
+  https://mosquitto.org/man/mosquitto-conf-5.html · `mosquitto_passwd -U`: https://mosquitto.org/man/mosquitto_passwd-1.html ·
+  image entrypoint (UID 1883): https://github.com/eclipse/mosquitto/blob/master/docker/2.1-alpine/docker-entrypoint.sh
+- cloudflared `TUNNEL_TOKEN`, `--token-file`, systemd unit, auto-update:
+  https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/ ·
+  image (`ENTRYPOINT cloudflared --no-autoupdate`, UID 65532): https://github.com/cloudflare/cloudflared/blob/master/Dockerfile
+- Compose `mem_limit`, `memswap_limit` (equal = no swap), `cpus`, `cpu_shares`, `env_file`:
+  https://docs.docker.com/reference/compose-file/services/
+- Workers Cache API (functional on custom domains): https://developers.cloudflare.com/workers/runtime-apis/cache/ ·
+  Workers VPC limits: https://developers.cloudflare.com/workers-vpc/platform/limits/
+- Spotify Web API:
+  - scopes: https://developer.spotify.com/documentation/web-api/concepts/scopes
+  - playback state: https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
+  - transfer (Premium only): https://developer.spotify.com/documentation/web-api/reference/transfer-a-users-playback
+  - volume: https://developer.spotify.com/documentation/web-api/reference/set-volume-for-users-playback
+  - auth code flow: https://developer.spotify.com/documentation/web-api/tutorials/code-flow
+  - refresh tokens (6-month lifetime): https://developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens
+  - redirect URIs (HTTPS or loopback): https://developer.spotify.com/documentation/web-api/concepts/redirect_uri
+  - quota modes (owner Premium, `QUOTA_EXCEEDED`, user allowlist): https://developer.spotify.com/documentation/web-api/concepts/quota-modes
+  - February 2026 changes: https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide
+  - extended access criteria: https://developer.spotify.com/blog/2025-04-15-updating-the-criteria-for-web-api-extended-access
+  - rate limits: https://developer.spotify.com/documentation/web-api/concepts/rate-limits
+  - apps (up to 25 per developer): https://developer.spotify.com/documentation/web-api/concepts/apps
+- Cast devices missing from `/me/player/devices` until active: https://github.com/spotify/web-api/issues/787 ·
+  https://github.com/spotify/web-api/issues/834
+- Wemo cloud and Alexa end (context for dropping Wemo): https://www.belkin.com/support-article/?articleNum=335419
 - Reference UI: https://github.com/wesbos/photo-frame-dashboard (at `0bff55e`)
 - Open-Meteo geocoding API (free, no key): https://open-meteo.com/en/docs/geocoding-api. Checked live
   2026-10-24 with `name=Denver&count=2`.
@@ -1120,5 +1822,11 @@ The rest, renumbered:
 - WebView protected media (`RESOURCE_PROTECTED_MEDIA_ID`): https://developer.android.com/reference/android/webkit/PermissionRequest#RESOURCE_PROTECTED_MEDIA_ID
 - Spotify Web Playback SDK (EME, Premium): https://developer.spotify.com/documentation/web-playback-sdk ·
   Web API Connect devices: https://developer.spotify.com/documentation/web-api/reference/get-a-users-available-devices
-- Home HQ kiosk `MainActivity.java` (WebView settings, `onPageStarted` `mainUrl`, portal mode) and device
-  plan §5 steps 4–6: box copies of the reference repo at `0bff55e` and the photo-frame project.
+- Home HQ kiosk `MainActivity.java` (WebView settings, `onPageStarted` `mainUrl`, portal mode, the
+  two-finger hold menu with Wi-Fi settings) and device plan §5 steps 3–8 (AiMOR disabled, boot fixes with
+  NTP, Omada reservation and allow-list): box copies of the reference repo at `0bff55e` and the
+  photo-frame project.
+- Repo files cited in §11.8: `worker/wrangler.jsonc` (`TIME_ZONE`, `WEATHER_LAT/LON`),
+  `worker/src/{state,health,weather}.js`, `worker/src/google/{calendar,oauth}.js`, `frame/src/main.js`,
+  `frame/src/version.js`, `.github/workflows/worker-secrets.yml`, `tools/set-worker-secrets.mjs`,
+  `docs/runbook-health.md`.

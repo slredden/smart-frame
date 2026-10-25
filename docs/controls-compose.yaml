@@ -1,0 +1,67 @@
+name: smart-frame-ha
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: homeassistant/home-assistant:2026.10.4
+    network_mode: host                 # HA listens on :8123
+    environment:
+      TZ: America/Denver
+    volumes:
+      - /opt/smart-frame-ha/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    stop_grace_period: 60s             # lets HA close its database (HA docs)
+    mem_limit: 1g
+    memswap_limit: 1g                  # equal to mem_limit = no swap
+    cpus: 1.0
+    cpu_shares: 256
+    depends_on: [mosquitto]
+    logging: *logging
+
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:2.1.2-alpine
+    ports:
+      - "127.0.0.1:1883:1883"          # for HA on the host network only, not the LAN
+    volumes:
+      - /opt/smart-frame-ha/mosquitto/config:/mosquitto/config
+      - /opt/smart-frame-ha/mosquitto/data:/mosquitto/data
+    restart: unless-stopped
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.25
+    cpu_shares: 256
+    logging: *logging
+
+  ring-mqtt:
+    container_name: ring-mqtt
+    image: tsightler/ring-mqtt:5.9.3
+    ports:
+      - "55123:55123"                  # Ring login page; only runs while there's no token
+    volumes:
+      - /opt/smart-frame-ha/ring-mqtt:/data
+    restart: unless-stopped
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
+    cpu_shares: 256
+    depends_on: [mosquitto]
+    logging: *logging
+
+  cloudflared:
+    container_name: cloudflared
+    image: cloudflare/cloudflared:2026.10.3
+    network_mode: host                 # reaches HA at 127.0.0.1:8123
+    command: tunnel --no-autoupdate run
+    env_file: /opt/smart-frame-ha/cloudflared.env   # TUNNEL_TOKEN=…, mode 600, never committed
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
+    cpu_shares: 256
+    logging: *logging
