@@ -409,14 +409,31 @@ function goTarget(el) {
   if (r) return { rail: r.getAttribute('data-rail') };
   const g = el.closest('[data-go]');
   const v = g && g.getAttribute('data-go');
-  return v && nav.viewEnabled(v, features()) ? { go: v } : null;
+  if (v && nav.viewEnabled(v, features())) return { go: v };
+  // Any other control (and anything in an open sheet) works without showing or hiding the rail.
+  if (el.closest(CONTROL_SEL) || (ctx.sheet.isOpen() && el.closest('#sheet'))) return { control: true };
+  return null;
 }
 
-/** Banner and toast buttons: handled before navigation; they count as a touch but don't peek the rail. */
+/** Interactive elements: a tap on one is a control tap; a tap anywhere else is empty space. */
+const CONTROL_SEL = '[data-act], button, a[href], input, select, textarea, label, .tap-row';
+
+// Hide the rail on time (the 2 s tick would be up to 2 s late).
+let railTimer = 0;
+function scheduleRailHide() {
+  clearTimeout(railTimer);
+  const mono = performance.now();
+  const left = nav.msUntilRailHides(ui, currentScreen(nowMs(), mono), mono);
+  if (left !== null) railTimer = setTimeout(tick, left + 20);
+}
+
+/** Banner and toast buttons: handled before navigation; they count as a touch but don't show the rail. */
 function overlayTap(el, mono) {
   const act = el && el.closest ? el.closest('[data-act]') : null;
   if (!act || !act.closest('#alerts, #toast')) return false;
-  ui = Object.assign({}, ui, { lastTouchMono: mono });
+  // A banner or toast button is a control: it restarts a showing rail's 10 s, never shows it.
+  const up = nav.railShown(ui, currentScreen(nowMs(), mono), mono);
+  ui = Object.assign({}, ui, { lastTouchMono: mono, peekUntilMono: up ? mono + nav.RAIL_PEEK_S * 1000 : ui.peekUntilMono });
   const a = act.getAttribute('data-act');
   if (a === 'toast-undo') toast.undo();
   else if (a === 'alert-dismiss' || a === 'alert-open') {
@@ -433,6 +450,14 @@ function overlayTap(el, mono) {
 attachTaps(document.body, (el) => {
   const mono = performance.now();
   chime.onTap();
+  try {
+    onFrameTap(el, mono);
+  } finally {
+    scheduleRailHide();
+  }
+});
+
+function onFrameTap(el, mono) {
   if (overlayTap(el, mono)) return;
   const before = currentScreen(nowMs(), mono);
   const target = goTarget(el);
@@ -449,9 +474,10 @@ attachTaps(document.body, (el) => {
       else if (!act && scr && scr.onBlankTap) scr.onBlankTap();
     }
   }
-});
+}
 
-if (MOCK && forcedScreen && screens[forcedScreen]) ui = { view: forcedScreen, lastTouchMono: performance.now(), peekUntilMono: null };
+// A pinned screen starts as if just opened from the rail: the rail shows, then hides after 10 s.
+if (MOCK && forcedScreen && screens[forcedScreen]) ui = { view: forcedScreen, lastTouchMono: performance.now(), peekUntilMono: performance.now() + nav.RAIL_PEEK_S * 1000 };
 if (MOCK && params.get('peek') === '1') ui = { view: nav.HOME, lastTouchMono: performance.now(), peekUntilMono: performance.now() + nav.RAIL_PEEK_S * 1000 };
 
 const jsErrors = [];
@@ -482,6 +508,7 @@ document.addEventListener('visibilitychange', () => {
 setInterval(heartbeat, 10 * 60000);
 
 renderAll();
+scheduleRailHide();
 tick();
 poll();
 setTimeout(heartbeat, 10000);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, initialState, railItems, viewEnabled, awake, screenAt, railShown, tap, msUntilIdle } from '../../frame/src/nav.js';
+import { HOME, NIGHT, SETTINGS, RAIL_PEEK_S, initialState, railItems, viewEnabled, awake, screenAt, railShown, msUntilRailHides, tap, msUntilIdle } from '../../frame/src/nav.js';
 import { minutesOfDay } from '../../shared/time.js';
 
 const IDLE = 10 * 60000;
@@ -32,42 +32,83 @@ describe('taps (PLAN-v2.md §2.3)', () => {
     }
   });
 
-  it('Home: a widget opens its screen', () => {
+  it('Home: a widget opens its screen; the rail stays as it was', () => {
     const s = tap(initialState(), 0, HOME, { go: 'weather' });
     expect(screenAt(s, m(12), 0, IDLE)).toBe('weather');
-    expect(railShown(s, 'weather', 0)).toBe(true);
+    expect(railShown(s, 'weather', 0)).toBe(false);
     const c = tap(initialState(), 0, HOME, { go: 'calendar' });
     expect(screenAt(c, m(12), 0, IDLE)).toBe('calendar');
+    // With the rail up, the widget tap restarts its 10 s.
+    let u = tap(initialState(), 0, HOME, null);
+    u = tap(u, 4000, HOME, { go: 'weather' });
+    expect(railShown(u, 'weather', 4000 + PEEK - 1)).toBe(true);
+    expect(railShown(u, 'weather', 4000 + PEEK)).toBe(false);
   });
 
-  it('Home: anywhere else peeks the rail for 30 s, and another tap restarts it', () => {
-    let s = tap(initialState(), 0, HOME, null);
-    expect(screenAt(s, m(12), 0, IDLE)).toBe(HOME);
-    expect(railShown(s, HOME, PEEK - 1)).toBe(true);
-    expect(railShown(s, HOME, PEEK)).toBe(false);
-    s = tap(s, 20000, HOME, null);
-    expect(railShown(s, HOME, 20000 + PEEK - 1)).toBe(true);
+  it('the rail hides after 10 s', () => {
+    expect(RAIL_PEEK_S).toBe(10);
   });
 
-  it('a rail item works only while the rail shows', () => {
-    // Rail hidden on Home: the tap peeks instead of navigating.
+  it('empty space shows the rail for 10 s on every screen, and another tap restarts it', () => {
+    for (const scr of [HOME, 'calendar', 'tasks', 'weather', 'photos', 'reflection', 'settings', 'controls']) {
+      let s = { view: scr, lastTouchMono: 0, peekUntilMono: null };
+      expect(railShown(s, scr, 0)).toBe(false);
+      s = tap(s, 1000, scr, null);
+      expect(screenAt(s, m(12), 1000, IDLE)).toBe(scr);
+      expect(railShown(s, scr, 1000 + PEEK - 1)).toBe(true);
+      expect(railShown(s, scr, 1000 + PEEK)).toBe(false);
+      expect(msUntilRailHides(s, scr, 1000)).toBe(PEEK);
+      s = tap(s, 8000, scr, null);
+      expect(railShown(s, scr, 8000 + PEEK - 1)).toBe(true);
+      expect(msUntilRailHides(s, scr, 8000 + PEEK)).toBe(null);
+    }
+  });
+
+  it('a control works without toggling the rail: it restarts a showing rail and leaves a hidden one hidden', () => {
+    let s = tap({ view: 'tasks', lastTouchMono: 0, peekUntilMono: null }, 0, 'tasks', null);
+    s = tap(s, 9000, 'tasks', { control: true });
+    expect(screenAt(s, m(12), 9000, IDLE)).toBe('tasks');
+    expect(railShown(s, 'tasks', 9000 + PEEK - 1)).toBe(true);
+    expect(railShown(s, 'tasks', 9000 + PEEK)).toBe(false);
+    s = tap(s, 30000, 'tasks', { control: true });
+    expect(railShown(s, 'tasks', 30000)).toBe(false);
+    expect(msUntilIdle(s, 30000, IDLE)).toBe(IDLE);
+    // On Home too: a control (e.g. a disabled widget's banner button) doesn't peek.
+    const hm = tap(initialState(), 0, HOME, { control: true });
+    expect(railShown(hm, HOME, 0)).toBe(false);
+  });
+
+  it('a rail item works only while the rail shows, and the rail stays 10 s after it', () => {
+    // Rail hidden on Home: the tap shows the rail instead of navigating.
     const hidden = tap(initialState(), 0, HOME, { rail: 'calendar' });
     expect(screenAt(hidden, m(12), 0, IDLE)).toBe(HOME);
     expect(railShown(hidden, HOME, 0)).toBe(true);
     const s = tap(hidden, 1000, HOME, { rail: 'calendar' });
     expect(screenAt(s, m(12), 1000, IDLE)).toBe('calendar');
+    expect(railShown(s, 'calendar', 1000 + PEEK - 1)).toBe(true);
+    expect(railShown(s, 'calendar', 1000 + PEEK)).toBe(false);
     const w = tap(s, 2000, 'calendar', { rail: 'weather' });
     expect(screenAt(w, m(12), 2000, IDLE)).toBe('weather');
     const h = tap(w, 3000, 'weather', { rail: 'home' });
     expect(screenAt(h, m(12), 3000, IDLE)).toBe(HOME);
-    expect(railShown(h, HOME, 3000)).toBe(false);
+    expect(railShown(h, HOME, 3000)).toBe(true);
+    expect(railShown(h, HOME, 3000 + PEEK)).toBe(false);
+    // A hidden rail can't be used on another screen either.
+    const late = tap(w, 2000 + PEEK, 'weather', { rail: 'calendar' });
+    expect(screenAt(late, m(12), 2000 + PEEK, IDLE)).toBe('weather');
+    expect(railShown(late, 'weather', 2000 + PEEK)).toBe(true);
   });
 
-  it('on another screen a plain tap keeps it open and restarts the idle timer', () => {
+  it('on another screen any tap keeps it open and restarts the idle timer', () => {
     let s = tap(initialState(), 0, HOME, { go: 'calendar' });
     s = tap(s, 5000, 'calendar', null);
     expect(screenAt(s, m(12), 5000, IDLE)).toBe('calendar');
     expect(msUntilIdle(s, 5000, IDLE)).toBe(IDLE);
+  });
+
+  it('never shows the rail at night', () => {
+    const s = { view: HOME, lastTouchMono: 0, peekUntilMono: PEEK };
+    expect(railShown(s, NIGHT, 0)).toBe(false);
   });
 });
 

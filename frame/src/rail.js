@@ -1,5 +1,5 @@
-// The navigation rail (PLAN-v2.md §2): 96 px on the left, shown on every screen but Home (where a
-// tap peeks it for 30 s) and Night. Unbuilt screens are hidden by `features`, so P1 shows
+// The navigation rail (PLAN-v2.md §2): 96 px on the left. On every screen but Night it shows on a tap
+// on empty space and hides 10 s after the last touch. Unbuilt screens are hidden by `features`, so P1 shows
 // Home, Calendar, Weather and Settings; the slots keep their order as later phases switch on.
 import { h, icon, clear } from './dom.js';
 import { railItems } from './nav.js';

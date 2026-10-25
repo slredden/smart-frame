@@ -6,7 +6,8 @@ import { HOME, NIGHT, scheduled, DEFAULT_SCHEDULE } from './schedule.js';
 export const RAIL = ['home', 'calendar', 'tasks', 'weather', 'photos', 'reflection', 'controls'];
 /** Always on the rail, below the clock, so Settings can never be hidden (§7.4 lock-out guard). */
 export const SETTINGS = 'settings';
-export const RAIL_PEEK_S = 30;
+/** The rail hides this long after the last touch, on every screen (rail auto-hide, 2026-10-24). */
+export const RAIL_PEEK_S = 10;
 const PEEK_MS = RAIL_PEEK_S * 1000;
 
 export function initialState() {
@@ -34,20 +35,26 @@ export function screenAt(state, minutes, mono, idleMs, schedule = DEFAULT_SCHEDU
   return awake(state, mono, idleMs) ? state.view : scheduled(minutes, schedule);
 }
 
-/** The rail shows on every screen but Home and night, and on Home during a peek. */
+/** The rail shows for RAIL_PEEK_S after the last touch that showed or used it, never at night. */
 export function railShown(state, screen, mono) {
   if (screen === NIGHT) return false;
-  if (screen !== HOME) return true;
   return state.peekUntilMono !== null && mono >= state.peekUntilMono - PEEK_MS && mono < state.peekUntilMono;
+}
+
+/** Milliseconds until the rail hides, or null when it isn't showing. */
+export function msUntilRailHides(state, screen, mono) {
+  return railShown(state, screen, mono) ? state.peekUntilMono - mono : null;
 }
 
 /**
  * One tap. `target` is {rail: view} for a rail item, {go: view} for a Home widget whose screen is
- * built, or null for anywhere else. `screen` is what was showing when the finger went down.
- * - Night: wake to Home with the rail peeking. Never opens a widget, whatever was under the finger.
- * - A rail item (only reachable while the rail shows) opens its screen.
- * - On Home, a widget opens its screen; anywhere else peeks the rail (again restarts the 30 s).
- * - On other screens a tap just keeps the frame awake.
+ * built, {control: true} for any other button or interactive row, or null for empty space.
+ * `screen` is what was showing when the finger went down.
+ * - Night: wake to Home with the rail showing. Never opens a widget, whatever was under the finger.
+ * - A rail item (only reachable while the rail shows) opens its screen; the rail stays for 10 s.
+ * - On Home, a widget opens its screen.
+ * - A control works as usual: if the rail is up its 10 s restart, if it's hidden it stays hidden.
+ * - Empty space (any screen) shows the rail for 10 s; again restarts the 10 s.
  */
 export function tap(state, mono, screen, target) {
   const next = { view: state.view, lastTouchMono: mono, peekUntilMono: state.peekUntilMono };
@@ -59,13 +66,16 @@ export function tap(state, mono, screen, target) {
   // When the frame was idle the schedule was showing Home, whatever view was left open.
   if (screen === HOME) next.view = HOME;
   const railUp = railShown(state, screen, mono);
+  const keep = railUp ? mono + PEEK_MS : null;
   if (target && target.rail && railUp) {
     next.view = target.rail;
-    next.peekUntilMono = null;
+    next.peekUntilMono = keep;
   } else if (next.view === HOME && target && target.go) {
     next.view = target.go;
-    next.peekUntilMono = null;
-  } else if (next.view === HOME) {
+    next.peekUntilMono = keep;
+  } else if (target && (target.control || target.go)) {
+    next.peekUntilMono = keep;
+  } else {
     next.peekUntilMono = mono + PEEK_MS;
   }
   return next;
