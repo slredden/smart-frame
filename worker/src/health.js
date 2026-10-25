@@ -4,6 +4,7 @@ import { getMeta } from './db.js';
 import { grantStatuses, grantHasScope, TASKS_SCOPE } from './google/oauth.js';
 import { activeSet } from './photos.js';
 import { spotifyStatus } from './spotify/oauth.js';
+import { haConfigured, lastReachable } from './ha.js';
 import { loadGuides } from './reflection.js';
 import { currentWeek, pickGuide, reflectionFreshness } from '../../shared/reflection.js';
 
@@ -36,6 +37,9 @@ export async function buildHealth(env, nowMs = Date.now()) {
   const tl = await db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(selected), 0) AS s FROM tasklists').first();
   const publishedAt = await getMeta(db, 'reflection_published_at');
   const spotify = await spotifyStatus(env, nowMs);
+  const haOn = haConfigured(env);
+  const haOk = haOn ? await lastReachable(db) : null;
+  const camCount = (await db.prepare('SELECT COUNT(*) AS n FROM controls_cams').first()).n;
 
   const problems = [];
   const offline = frameAge === null || frameAge > OFFLINE_MINUTES;
@@ -62,6 +66,10 @@ export async function buildHealth(env, nowMs = Date.now()) {
   if (spotify.status === 'needs_reconsent') problems.push('grant_spotify_needs_reconsent');
   else if (spotify.status !== 'ok') problems.push('spotify_not_connected');
   else if (spotify.reauthDue) problems.push('spotify_reauth_due');
+  // P2 Controls: all soft. Cameras are a nice-to-have; the frame says "Cameras offline" itself.
+  if (!haOn) problems.push('controls_not_connected');
+  else if (haOk === false) problems.push('controls_ha_unreachable');
+  else if (!camCount) problems.push('controls_no_cameras');
 
   // Chief emails Stephen only for these: frame offline > 1 h, or a Google sign-in that needs fixing.
   const alert = problems.some((p) => p.startsWith('frame_') || p.startsWith('grant_') || p === 'spotify_reauth_due');
@@ -72,6 +80,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
     now: new Date(nowMs).toISOString(),
     frame: { lastHeartbeat, ageMinutes: frameAge, offline, build: frameBuild },
     grants: { calendar: { status: grants.calendar.status, tasksScope }, photos: { status: grants.photos.status } },
+    controls: { connected: haOn, reachable: haOk, cameras: camCount },
     spotify: { configured: spotify.configured, status: spotify.status, connectedAt: spotify.connectedAt, reconnectBy: spotify.reconnectBy },
     photos: { lastSync: photoSync, count: set ? set.count : 0 },
     weather: { lastFetch: weatherOk, ageMinutes: wAge },

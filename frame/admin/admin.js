@@ -267,6 +267,7 @@ const SETTING_TEXT = {
     'Events ' + v.leadMin + ' min before' + ', chime ' + (v.chime ? 'on at ' + v.volume + '%' : 'off') +
     ', tasks ' + (v.tasks ? 'at ' + fmtMin(v.tasksAt) : 'off') +
     ', quiet ' + (v.quiet === 'night' ? 'at night' : fmtMin(v.quiet.start) + ' to ' + fmtMin(v.quiet.end)),
+  controls: (v) => 'Indoor cameras ' + (v.indoor ? 'on, reveal ' + v.revealSec + ' s' : 'off'),
 };
 
 async function loadSettings() {
@@ -365,11 +366,121 @@ $('sp-disconnect').addEventListener('click', async () => {
 const spotifyParam = new URLSearchParams(location.search).get('spotify');
 if (spotifyParam) $('sp-out').textContent = SPOTIFY_MSG[spotifyParam] || 'Spotify sign-in failed: ' + spotifyParam;
 
+// ----- Controls (PLAN-v2.md §11.3, §11.7): HA status, camera allowlist, indoor switch -----
+const CTL_MISSING = {
+  no_binding: 'Not connected: the Worker has no HA (Workers VPC) binding yet. Cameras show "not connected" on the frame.',
+  no_token: 'Not connected: HA_TOKEN isn\u2019t on the Worker yet.',
+};
+
+function ctlInput(cls, value, attrs) {
+  const i = document.createElement('input');
+  i.className = cls;
+  for (const k of Object.keys(attrs)) i.setAttribute(k, attrs[k]);
+  if (attrs.type === 'checkbox') i.checked = !!value;
+  else i.value = value;
+  const td = document.createElement('td');
+  td.appendChild(i);
+  return td;
+}
+
+function ctlRows(cams) {
+  const body = $('ctl-rows');
+  body.textContent = '';
+  for (let i = 0; i < 4; i++) {
+    const c = cams[i] || { entityId: '', label: '', indoor: false };
+    const tr = document.createElement('tr');
+    const n = document.createElement('td');
+    n.textContent = String(i + 1);
+    tr.appendChild(n);
+    tr.appendChild(ctlInput('ctl-entity', c.entityId, { list: 'ctl-entities', placeholder: 'camera.front_door_snapshot', maxlength: '87' }));
+    tr.appendChild(ctlInput('ctl-label', c.label, { placeholder: 'Front door', maxlength: '40' }));
+    tr.appendChild(ctlInput('ctl-indoor', c.indoor, { type: 'checkbox' }));
+    body.appendChild(tr);
+  }
+}
+
+async function loadControls() {
+  try {
+    const s = await api('GET', 'controls');
+    let t;
+    if (!s.connected) t = CTL_MISSING[s.missing] || 'Not connected.';
+    else if (s.ha && s.ha.ok) t = 'HA reachable' + (s.ha.version ? ', version ' + s.ha.version : '') + '.';
+    else t = 'HA not reachable (' + ((s.ha && s.ha.error) || 'error') + '). The frame shows "Cameras offline".';
+    $('ctl-status').textContent = t + ' ' + s.cams.length + ' of 4 cameras set.';
+    ctlRows(s.cams);
+  } catch (e) {
+    $('ctl-status').textContent = 'Could not load: ' + e.message;
+  }
+  try {
+    const r = await api('GET', 'settings');
+    const c = (r.settings.find((x) => x.key === 'controls') || {}).value || { indoor: false, revealSec: 45 };
+    $('ctl-indoor').checked = !!c.indoor;
+    const sel = $('ctl-reveal');
+    sel.textContent = '';
+    for (let v = 30; v <= 60; v += 5) {
+      const o = document.createElement('option');
+      o.value = String(v);
+      o.textContent = String(v);
+      if (v === c.revealSec) o.selected = true;
+      sel.appendChild(o);
+    }
+  } catch {
+    // the settings table shows its own error
+  }
+}
+
+$('ctl-list').addEventListener('click', async () => {
+  $('ctl-list-out').textContent = 'Asking Home Assistant…';
+  try {
+    const r = await api('GET', 'controls/cameras');
+    const dl = $('ctl-entities');
+    dl.textContent = '';
+    for (const c of r.cameras) {
+      const o = document.createElement('option');
+      o.value = c.entityId;
+      o.textContent = c.name;
+      dl.appendChild(o);
+    }
+    $('ctl-list-out').textContent = r.cameras.length + ' cameras found. Pick them in the entity boxes (ring-mqtt\u2019s "…_snapshot" cameras).';
+  } catch (e) {
+    $('ctl-list-out').textContent = 'Failed: ' + e.message;
+  }
+});
+
+$('ctl-save').addEventListener('click', async () => {
+  const cams = [];
+  for (const tr of $('ctl-rows').children) {
+    const entityId = tr.querySelector('.ctl-entity').value.trim();
+    if (!entityId) continue;
+    cams.push({ entityId, label: tr.querySelector('.ctl-label').value.trim(), indoor: tr.querySelector('.ctl-indoor').checked });
+  }
+  try {
+    await api('PUT', 'controls/cams', { cams });
+    $('ctl-out').textContent = 'Saved.';
+    loadControls();
+  } catch (e) {
+    $('ctl-out').textContent = 'Failed: ' + e.message;
+  }
+});
+
+async function saveControlsSetting(patch) {
+  try {
+    await api('PUT', 'settings/controls', patch);
+    $('ctl-set-out').textContent = 'Saved.';
+    loadSettings();
+  } catch (e) {
+    $('ctl-set-out').textContent = 'Failed: ' + e.message;
+  }
+}
+$('ctl-indoor').addEventListener('change', () => saveControlsSetting({ indoor: $('ctl-indoor').checked }));
+$('ctl-reveal').addEventListener('change', () => saveControlsSetting({ revealSec: Number($('ctl-reveal').value) }));
+
 const oauth = new URLSearchParams(location.search).get('oauth');
 if (oauth) $('grant-out').textContent = oauth === 'ok' ? 'Google connected.' : 'Google sign-in failed: ' + oauth;
 
 loadStatus();
 loadSpotify();
+loadControls();
 loadCalendars();
 loadTaskLists();
 loadPhotos();

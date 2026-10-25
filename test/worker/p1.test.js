@@ -354,7 +354,7 @@ describe('admin settings', () => {
     let r = await route(req('/admin/api/settings', h()), env, { fetchImpl });
     expect(r.status).toBe(200);
     let s = (await r.json()).settings;
-    expect(s.map((x) => x.key)).toEqual(['schedule', 'night', 'idle', 'weather', 'calendar', 'photos', 'tasks', 'alerts']);
+    expect(s.map((x) => x.key)).toEqual(['schedule', 'night', 'idle', 'weather', 'calendar', 'photos', 'tasks', 'alerts', 'controls']);
     expect(s.every((x) => x.updatedBy === null)).toBe(true);
     r = await route(req('/admin/api/settings/night', h({ method: 'PUT', body: JSON.stringify({ dimPct: 70 }) })), env, { fetchImpl });
     expect(r.status).toBe(400);
