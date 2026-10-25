@@ -26,7 +26,35 @@ export const SCHEMA = [
     selected INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
   // v2 P1: frame settings, one JSON value per key (PLAN-v2.md §7.3).
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL)`,
+  // v2 P1b: the account's task lists (loaded on demand) and which ones the frame shows (PLAN-v2.md §4.1).
+  `CREATE TABLE IF NOT EXISTS tasklists (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, selected INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0,
+    is_default INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
+  // v2 P1b: up to 6 published guides, one row per guide start (PLAN-v2.md §8.2). Replaces reflection id = 1.
+  `CREATE TABLE IF NOT EXISTS reflection_guides (start TEXT PRIMARY KEY, end TEXT NOT NULL, data_enc TEXT NOT NULL, published_at TEXT NOT NULL)`,
 ];
+
+// Columns added to existing tables. SQLite has no ADD COLUMN IF NOT EXISTS, so each runs once per
+// database (meta schema_v) and a "duplicate column" error from a half-finished run is ignored.
+export const SCHEMA_VERSION = 2;
+const MIGRATIONS = [
+  'ALTER TABLE calendars ADD COLUMN alert INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE photos ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE photos ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0',
+];
+
+async function migrate(db) {
+  const v = Number(await getMeta(db, 'schema_v')) || 1;
+  if (v >= SCHEMA_VERSION) return;
+  for (const sql of MIGRATIONS) {
+    try {
+      await db.prepare(sql).run();
+    } catch (e) {
+      if (!/duplicate column/i.test(String(e && e.message))) throw e;
+    }
+  }
+  await setMeta(db, 'schema_v', SCHEMA_VERSION);
+}
 
 const ready = new WeakMap();
 
@@ -34,7 +62,7 @@ const ready = new WeakMap();
 export function ensureSchema(db) {
   let p = ready.get(db);
   if (!p) {
-    p = db.batch(SCHEMA.map((s) => db.prepare(s))).catch((e) => {
+    p = db.batch(SCHEMA.map((s) => db.prepare(s))).then(() => migrate(db)).catch((e) => {
       ready.delete(db);
       throw e;
     });

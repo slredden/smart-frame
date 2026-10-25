@@ -37,12 +37,14 @@ export function createSheet(root) {
   }
 
   return {
-    /** spec: {title, build(body, setMsg) -> {onTap?(el)}, onDone() -> true | 'error text', doneLabel} */
+    /** spec: {title, build(body, setMsg) -> {onTap?(el)}, onDone() -> true | 'error text', doneLabel, noCancel, wide} */
     open(spec) {
       clear(body);
       msg.textContent = '';
       title.textContent = spec.title;
+      panel.className = 'sheet-panel' + (spec.wide ? ' wide' : '');
       done.textContent = spec.doneLabel || 'Done';
+      cancel.style.display = spec.noCancel ? 'none' : '';
       cur = { onDone: spec.onDone, busy: false, handlers: {} };
       cur.handlers = spec.build(body, (t) => (msg.textContent = t || '')) || {};
       root.classList.add('open');

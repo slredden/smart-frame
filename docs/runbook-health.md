@@ -33,7 +33,9 @@ Soft (shown, no email): `weather_stale`, `calendar_stale` (the cron will retry; 
 showing the last good data), `reflection_no_current_week` (publish the next guide),
 `tasks_scope_missing` (the calendar grant works but lacks the Google Tasks permission v2 asks for;
 expected until Stephen reconnects at /admin after the P1 deploy, or if he unticks Tasks; at most one
-such code, and it never sets `alert`), and the two
+such code, and it never sets `alert`), `tasks_lists_empty` (Tasks is granted but Google returned no task
+lists, e.g. the grant went to an account without Google Tasks; Chief flags it to Stephen, see
+runbook-tasks.md), `tasks_stale` (no good tasks refresh for over 60 minutes), and the two
 freshness codes below (PLAN-v2.md §8.5). Both use the guide's coverage dates in Denver, not when it
 was published:
 
@@ -45,7 +47,7 @@ was published:
   count until its start date.
 
 `reflection` in the JSON: `{currentWeek, weekly: {start, ageDays, stale}, monthly: {start, end,
-ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `frame.build` is the build the frame last reported, so it shows whether
+ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `frame.build` is the build the frame last reported, so it shows whether
 the frame reloaded after a deploy.
 
 ## Email template

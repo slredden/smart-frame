@@ -24,12 +24,22 @@ const ERRORS = {
   schedule_night_start: 'Night can start between 6:00 PM and midnight.',
   too_many_writes: 'Too many changes this hour. Try again later.',
   too_many_calendars: 'That is the most calendars the frame can show.',
+  alerts_quiet: 'Quiet hours need a start and an end that differ.',
   reconnect_calendar: 'Reconnect Google on the admin page to list calendars.',
   no_grant: 'Connect Google on the admin page first.',
 };
 export const errorText = (code) => ERRORS[code] || "Couldn't save. Try again.";
 
 export const scheduleText = (s) => minutesLabel(s.dayStart) + ' – ' + minutesLabel(s.nightStart);
+
+/** 'Off' / 'At start' never happens: 0 means off (PLAN-v2.md §9.5). */
+export const leadText = (m) => (m ? m + ' min before' : 'Off');
+
+/** Settings row value: '10 min · chime 60%' / 'Off'. */
+export function alertsSummary(a) {
+  if (!a.leadMin && !a.tasks) return 'Off';
+  return (a.leadMin ? a.leadMin + ' min' : 'Tasks only') + ' · ' + (a.chime ? 'chime ' + a.volume + '%' : 'no chime');
+}
 
 export function createSettingsScreen(root, ctx) {
   const list = h('div', 'set-list');
@@ -38,6 +48,7 @@ export function createSettingsScreen(root, ctx) {
   root.appendChild(h('div', 'set-foot', 'Pairing, Google connect and other account settings are on the admin page.'));
 
   let calSummary = '';
+  let listSummary = '';
 
   /** '3 shown' from a calendars list (selected, or the primary one when nothing is selected). */
   function summarize(cals) {
@@ -49,6 +60,23 @@ export function createSettingsScreen(root, ctx) {
     const r = await ctx.client.calendars();
     if (r.status === 200 && r.data) {
       summarize(r.data.calendars);
+      render();
+    }
+  }
+
+  /** '2 shown' / 'Default list' / 'Not connected' for the Task lists row. */
+  function summarizeLists(d) {
+    if (d.scope === false) listSummary = 'Not connected';
+    else {
+      const n = (d.lists || []).filter((l) => l.selected).length;
+      listSummary = n ? n + ' shown' : 'Default list';
+    }
+  }
+
+  async function loadLists() {
+    const r = await ctx.client.tasklists();
+    if (r.status === 200 && r.data) {
+      summarizeLists(r.data);
       render();
     }
   }
@@ -68,6 +96,9 @@ export function createSettingsScreen(root, ctx) {
     list.appendChild(row('Back to Home after', s.idle.minutes + ' min', 'set-idle'));
     list.appendChild(row('Weather location', s.weather.name, 'set-weather'));
     list.appendChild(row('Calendars', calSummary, 'set-calendars'));
+    list.appendChild(row('Task lists', listSummary, 'set-tasklists'));
+    list.appendChild(row('Tasks on Home', s.tasks.onHome ? 'On' : 'Off', 'set-tasks-home'));
+    list.appendChild(row('Alerts', alertsSummary(s.alerts), 'set-alerts'));
   }
 
   /** Saves through the Worker; returns true or the error text for the sheet. */
@@ -196,14 +227,88 @@ export function createSettingsScreen(root, ctx) {
     });
   }
 
+  function editAlerts() {
+    const b = BOUNDS.alerts;
+    const v = JSON.parse(JSON.stringify(ctx.settings().alerts));
+    const sch = ctx.settings().schedule;
+    if (v.quiet !== 'night') v.custom = v.quiet;
+    const box = h('div', 'alert-opts');
+    const colA = h('div', 'alert-col');
+    const colB = h('div', 'alert-col');
+    box.appendChild(colA);
+    box.appendChild(colB);
+    const draw = () => {
+      clear(colA);
+      clear(colB);
+      const step = (label, f, text) => h('div', 'stepper', '', [h('span', 'step-label', label), btn('–', 'step', 'step-btn', { dir: '-1', f }), h('span', 'step-val', text), btn('+', 'step', 'step-btn', { dir: '1', f })]);
+      const seg = (label, f, choices) =>
+        h('div', 'opt-row', '', [h('span', 'step-label', label), h('div', 'seg', '', choices.map(([val, text, on]) => btn(text, 'opt', 'seg-btn opt-btn' + (on ? ' on' : ''), { f, v: String(val) })))]);
+      colA.appendChild(step('Event alert', 'leadMin', leadText(v.leadMin)));
+      colA.appendChild(seg('Chime', 'chime', [[true, 'On', v.chime], [false, 'Off', !v.chime]]));
+      colA.appendChild(step('Chime volume', 'volume', v.volume + '%'));
+      colA.appendChild(btn('Play test chime', 'test-chime', 'wide test-chime'));
+      colB.appendChild(seg('Tasks alert', 'tasks', [[true, 'On', v.tasks], [false, 'Off', !v.tasks]]));
+      colB.appendChild(step('Tasks alert at', 'tasksAt', minutesLabel(v.tasksAt)));
+      colB.appendChild(seg('Quiet hours', 'quiet', [['night', 'Night', v.quiet === 'night'], ['custom', 'Custom', v.quiet !== 'night']]));
+      if (v.quiet === 'night') colB.appendChild(h('div', 'opt-note', 'Quiet from ' + minutesLabel(sch.nightStart) + ' to ' + minutesLabel(sch.dayStart) + ' (the night clock).'));
+      else {
+        colB.appendChild(step('Quiet from', 'qStart', minutesLabel(v.quiet.start)));
+        colB.appendChild(step('Quiet until', 'qEnd', minutesLabel(v.quiet.end)));
+      }
+    };
+    draw();
+    ctx.sheet.open({
+      title: 'Alerts',
+      wide: true,
+      build(body, setMsg) {
+        body.appendChild(box);
+        return {
+          onTap(el, act) {
+            const f = el.getAttribute('data-f');
+            const dir = Number(el.getAttribute('data-dir'));
+            if (act === 'step') {
+              if (f === 'leadMin') v.leadMin = stepList(b.leads, v.leadMin, dir);
+              else if (f === 'volume') v.volume = clamp(v.volume + dir * b.volumeStep, b.volume);
+              else if (f === 'tasksAt') v.tasksAt = clamp(v.tasksAt + dir * b.step, b.tasksAt);
+              else if (f === 'qStart' || f === 'qEnd') {
+                const k = f === 'qStart' ? 'start' : 'end';
+                const q = Object.assign({}, v.quiet);
+                q[k] = (q[k] + dir * b.step + 1440) % 1440;
+                if (q.start === q.end) q[k] = (q[k] + dir * b.step + 1440) % 1440;
+                v.quiet = q;
+                v.custom = q;
+              }
+            } else if (act === 'opt') {
+              const raw = el.getAttribute('data-v');
+              if (f === 'quiet') v.quiet = raw === 'night' ? 'night' : v.custom || { start: sch.nightStart % 1440, end: sch.dayStart };
+              else v[f] = raw === 'true';
+            } else if (act === 'test-chime') {
+              setMsg('Playing at ' + v.volume + '%…');
+              ctx.testChime(v.volume).then((ok) => setMsg(ok ? 'Played at ' + v.volume + '%. Not loud enough? Raise the media volume on the frame.' : 'Audio is blocked. Tap once more to hear it.'));
+              return;
+            }
+            setMsg('');
+            draw();
+          },
+        };
+      },
+      onDone: () => save('alerts', { leadMin: v.leadMin, chime: v.chime, volume: v.volume, quiet: v.quiet, tasksAt: v.tasksAt, tasks: v.tasks }),
+    });
+  }
+
   return {
     show() {
       render();
       loadCals();
+      loadLists();
     },
     render,
     calendarsSaved(data) {
       summarize(data.calendars);
+      render();
+    },
+    listsSaved(data) {
+      summarizeLists(data);
       render();
     },
     onTap(el, act) {
@@ -212,6 +317,9 @@ export function createSettingsScreen(root, ctx) {
       else if (act === 'set-idle') editIdle();
       else if (act === 'set-weather') editWeather();
       else if (act === 'set-calendars') ctx.openCalendars();
+      else if (act === 'set-tasklists') ctx.openTaskLists();
+      else if (act === 'set-tasks-home') save('tasks', { onHome: !ctx.settings().tasks.onHome }).then((r) => r !== true && ctx.toast.show({ text: r, ms: 4000 }));
+      else if (act === 'set-alerts') editAlerts();
     },
   };
 }
@@ -221,6 +329,7 @@ export function openCalendarsSheet(ctx, onSaved) {
   let cals = [];
   let max = 10;
   const chosen = {};
+  const alertOn = {};
   ctx.sheet.open({
     title: 'Calendars',
     build(body, setMsg) {
@@ -236,14 +345,19 @@ export function openCalendarsSheet(ctx, onSaved) {
           b.type = 'button';
           b.setAttribute('data-act', 'cals-pick');
           b.setAttribute('data-i', String(i));
-          out.appendChild(b);
+          // Per-calendar alerts (PLAN-v2.md §9.1): a separate 72 px bell beside the pick row.
+          const bell = btn(alertOn[c.id] ? 'Alerts on' : 'Alerts off', 'cals-alert', 'cal-bell' + (alertOn[c.id] ? ' on' : ''), { i: String(i) });
+          out.appendChild(h('div', 'cal-pick-row', '', [b, bell]));
         });
         if (!cals.length) out.appendChild(h('div', 'cal-note', 'No calendars loaded yet. Tap Refresh.'));
       };
       const take = (d) => {
         cals = d.calendars || [];
         max = d.max || max;
-        for (const c of cals) chosen[c.id] = !!c.selected;
+        for (const c of cals) {
+          chosen[c.id] = !!c.selected;
+          alertOn[c.id] = c.alert !== false;
+        }
         show();
       };
       setMsg('Loading…');
@@ -266,6 +380,11 @@ export function openCalendarsSheet(ctx, onSaved) {
             chosen[c.id] = !chosen[c.id];
             setMsg('');
             show();
+          } else if (act === 'cals-alert') {
+            const c = cals[Number(el.getAttribute('data-i'))];
+            if (!c) return;
+            alertOn[c.id] = !alertOn[c.id];
+            show();
           } else if (act === 'cals-sync') {
             setMsg('Refreshing…');
             const r = await ctx.client.syncCalendars();
@@ -280,7 +399,8 @@ export function openCalendarsSheet(ctx, onSaved) {
     onDone: async () => {
       if (!cals.length) return true;
       const ids = cals.filter((c) => chosen[c.id]).map((c) => c.id);
-      const r = await ctx.client.saveSelection(ids);
+      const off = cals.filter((c) => !alertOn[c.id]).map((c) => c.id);
+      const r = await ctx.client.saveSelection(ids, off);
       if (r.status === 200 && r.data && r.data.ok) {
         onSaved(r.data);
         return true;

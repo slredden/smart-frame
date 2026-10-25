@@ -1,6 +1,6 @@
 // Frame settings in D1 (PLAN-v2.md §7). JSON values per key, merged over the defaults; bounds live in
 // shared/settings.js. Writes are device-authed (or /admin) and capped per device per hour.
-import { DEFAULTS, DEFAULT_WEATHER, SETTING_KEYS, validateSetting, mergeSettings } from '../../shared/settings.js';
+import { DEFAULTS, DEFAULT_WEATHER, BOUNDS, SETTING_KEYS, validateSetting, mergeSettings } from '../../shared/settings.js';
 import { nowIso, getMeta, setMeta } from './db.js';
 import { log } from './http.js';
 
@@ -11,6 +11,8 @@ export function envDefaults(env) {
   const d = JSON.parse(JSON.stringify(DEFAULTS));
   const idle = Number(env.IDLE_MINUTES);
   if (Number.isInteger(idle) && idle >= 1 && idle <= 60) d.idle.minutes = idle;
+  const iv = Number(env.PHOTO_INTERVAL_SEC);
+  if (BOUNDS.photos.intervals.indexOf(iv) >= 0) d.photos.intervalSec = iv;
   const lat = Number(env.WEATHER_LAT);
   const lon = Number(env.WEATHER_LON);
   if (env.WEATHER_LAT && env.WEATHER_LON && isFinite(lat) && isFinite(lon) && (lat !== DEFAULT_WEATHER.lat || lon !== DEFAULT_WEATHER.lon)) {

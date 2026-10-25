@@ -3,8 +3,8 @@ import { ymdIn } from '../../shared/time.js';
 import { getMeta } from './db.js';
 import { grantStatuses, grantHasScope, TASKS_SCOPE } from './google/oauth.js';
 import { activeSet } from './photos.js';
-import { loadGuide } from './reflection.js';
-import { currentWeek, reflectionFreshness } from '../../shared/reflection.js';
+import { loadGuides } from './reflection.js';
+import { currentWeek, pickGuide, reflectionFreshness } from '../../shared/reflection.js';
 
 export const OFFLINE_MINUTES = 60;
 
@@ -25,11 +25,14 @@ export async function buildHealth(env, nowMs = Date.now()) {
   const photoSync = await getMeta(db, 'photo_sync_at');
   const weatherOk = await getMeta(db, 'weather_ok_at');
   const calendarOk = await getMeta(db, 'calendar_ok_at');
-  const guide = await loadGuide(env);
+  const guides = await loadGuides(env);
   const today = ymdIn(nowMs, tz);
-  const week = currentWeek(guide, today);
-  // v1 stores one guide (id = 1), so "all published guides" is that one (PLAN-v2.md §8.5).
-  const fresh = reflectionFreshness(guide ? [guide] : [], today);
+  const week = currentWeek(pickGuide(guides, today), today);
+  // Freshness looks across every published guide (PLAN-v2.md §8.5); P1b keeps up to 6.
+  const fresh = reflectionFreshness(guides, today);
+  const tasksOk = await getMeta(db, 'tasks_ok_at');
+  const tasksEmpty = await getMeta(db, 'tasks_lists_empty');
+  const tl = await db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(selected), 0) AS s FROM tasklists').first();
   const publishedAt = await getMeta(db, 'reflection_published_at');
 
   const problems = [];
@@ -45,6 +48,11 @@ export async function buildHealth(env, nowMs = Date.now()) {
   if (grants.calendar.status === 'ok' && (cAge === null || cAge > 60)) problems.push('calendar_stale');
   // Soft (no alert): the calendar grant predates v2's batched consent, so P1b's Tasks can't load yet.
   if (grants.calendar.status === 'ok' && !tasksScope) problems.push('tasks_scope_missing');
+  // Soft (P1b, Chief's Q11 check): Tasks is granted but the account has no task lists (e.g. the grant
+  // went to an account without Google Tasks), or tasks haven't refreshed for an hour.
+  const tAge = ageMin(tasksOk, nowMs);
+  if (grants.calendar.status === 'ok' && tasksScope && tasksEmpty) problems.push('tasks_lists_empty');
+  else if (grants.calendar.status === 'ok' && tasksScope && (tAge === null || tAge > 60)) problems.push('tasks_stale');
   if (!week) problems.push('reflection_no_current_week');
   if (fresh.weekly.stale) problems.push('reflection_weekly_stale');
   if (fresh.monthly.stale) problems.push('reflection_monthly_stale');
@@ -61,7 +69,8 @@ export async function buildHealth(env, nowMs = Date.now()) {
     photos: { lastSync: photoSync, count: set ? set.count : 0 },
     weather: { lastFetch: weatherOk, ageMinutes: wAge },
     calendar: { lastFetch: calendarOk },
-    reflection: { currentWeek: week ? week.n : null, weekly: fresh.weekly, monthly: fresh.monthly, publishedAt: publishedAt || null },
+    tasks: { scope: tasksScope, lastFetch: tasksOk || null, lists: tl ? tl.n : 0, selected: tl ? tl.s : 0, listsEmpty: !!tasksEmpty },
+    reflection: { guides: guides.length, currentWeek: week ? week.n : null, weekly: fresh.weekly, monthly: fresh.monthly, publishedAt: publishedAt || null },
     problems,
   };
 }

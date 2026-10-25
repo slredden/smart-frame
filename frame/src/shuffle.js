@@ -1,6 +1,6 @@
 // Seeded daily shuffle, so the photo order is stable across reloads on the same day (PLAN.md §8).
 
-function hashString(s) {
+export function hashString(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);

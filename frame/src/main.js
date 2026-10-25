@@ -8,13 +8,21 @@ import { nextLine, allDayLine, agendaRows } from './agenda.js';
 import { takeToken, createClient, backoffMs, saveSnapshot, loadSnapshot } from './api.js';
 import { buildChanged, quietMoment, dailyReloadDue, RELOAD_KEY } from './version.js';
 import { createSlideshow } from './photos.js';
-import { mockState, createMockClient } from './mock.js';
+import { mockState, createMockClient, mockConfig } from './mock.js';
 import { mergeSettings } from '../../shared/settings.js';
 import { createRail } from './rail.js';
 import { createSheet } from './sheet.js';
 import { createCalendarScreen } from './screens/calendar.js';
 import { createWeatherScreen } from './screens/weather.js';
 import { createSettingsScreen, openCalendarsSheet } from './screens/settings.js';
+import { createTasksScreen, openTaskListsSheet } from './screens/tasks.js';
+import { createReflectionScreen } from './screens/reflection.js';
+import { createPhotosScreen } from './screens/photos.js';
+import { dueTodayLine } from './tasks-view.js';
+import { step as alertStep, dismiss as alertDismiss, loadMemory, saveMemory } from './alerts.js';
+import { renderBanners } from './banner.js';
+import { createChime } from './chime.js';
+import { createToast } from './toast.js';
 
 const BUILD = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev';
 const TZ = 'America/Denver';
@@ -24,11 +32,15 @@ const ICON_BASE = './icons/';
 
 // Mock-only test hooks: freeze the clock (?at=ISO), force Home or night (?screen=home|night), open
 // a screen at boot (?screen=calendar|weather|settings), peek the rail (?peek=1), show all 8 rail
-// items (?rail=all).
+// items (?rail=all), Tasks without the Google scope (?tasks=noscope).
 const frozenAt = MOCK && params.get('at') ? Date.parse(params.get('at')) : NaN;
 const forcedScreen = MOCK ? params.get('screen') : null;
 const ALL_FEATURES = { calendar: true, tasks: true, weather: true, photos: true, reflection: true, controls: true };
 const bootMono = performance.now();
+if (MOCK) {
+  if (params.get('tasks') === 'noscope') mockConfig.tasksScope = false;
+  window.__sfMock = mockConfig;
+}
 
 let clockOffset = 0; // server-corrected offset when the frame clock is off by > 2 min
 const nowMs = () => (isFinite(frozenAt) ? frozenAt + (performance.now() - bootMono) : Date.now() + clockOffset);
@@ -51,7 +63,7 @@ function idleMs() {
 }
 
 function intervalMs() {
-  const c = data && data.config && Number(data.config.photoIntervalSec);
+  const c = Number(settings().photos.intervalSec) || (data && data.config && Number(data.config.photoIntervalSec));
   return (c >= 5 ? c : 60) * 1000;
 }
 
@@ -72,7 +84,35 @@ const rail = createRail(document.getElementById('nav-rail'));
 const slideshow = createSlideshow(document.getElementById('stage'), {
   intervalMs,
   onError: () => schedulePoll(1000),
+  options: () => settings().photos,
+  onChange: () => {
+    if (lastScreen === 'photos' && screens.photos) screens.photos.refresh();
+  },
 });
+
+// ----- alerts (PLAN-v2.md §9): computed here from cached data, one bundled chime -----
+const memStore = { v: {}, getItem: (k) => memStore.v[k] || null, setItem: (k, v) => (memStore.v[k] = v) };
+const alertStore = MOCK ? memStore : localStorage;
+let alertMem = loadMemory(alertStore);
+let alertMemJson = JSON.stringify(alertMem);
+const alertsRoot = document.getElementById('alerts');
+const chime = createChime('./chime.wav');
+const toast = createToast(document.getElementById('toast'));
+
+function runAlerts() {
+  const ms = nowMs();
+  const c = data && data.calendar;
+  const res = alertStep(alertMem, { nowMs: ms, tz: TZ, soon: (c && c.soon) || [], tasks: data && data.tasks, settings: settings(), screen: lastScreen });
+  alertMem = res.memory;
+  const j = JSON.stringify(alertMem);
+  if (j !== alertMemJson) {
+    alertMemJson = j;
+    saveMemory(alertStore, alertMem);
+  }
+  const stale = !!(c && c.fetchedAt && ms - Date.parse(c.fetchedAt) > 30 * 60000);
+  renderBanners(alertsRoot, res, ms, TZ, stale);
+  if (res.chime) chime.play(settings().alerts.volume);
+}
 
 function renderClock(ms) {
   const [time, ampm] = clockParts(ms, TZ);
@@ -158,6 +198,11 @@ function renderCalendar(ms) {
   }
 }
 
+function renderTasksLine() {
+  const t = data && data.tasks;
+  setText('tasksLine', t && t.scope && settings().tasks.onHome ? dueTodayLine(t) : '');
+}
+
 function renderReflection() {
   if (!paired) {
     setText('reflTheme', 'Frame needs re-pairing');
@@ -174,6 +219,7 @@ function renderAll() {
   renderClock(ms);
   renderWeather(ms);
   renderCalendar(ms);
+  renderTasksLine();
   renderReflection();
   if (data && data.photos) slideshow.setItems(data.photos.items, data.photos.setId, ymdIn(ms, TZ));
 }
@@ -190,6 +236,7 @@ function applyScreen(screen) {
   const railOn = nav.railShown(ui, screen, mono);
   if (screen === lastScreen && railOn === lastRail) return;
   const changed = screen !== lastScreen;
+  const prev = lastScreen;
   lastScreen = screen;
   lastRail = railOn;
   document.body.className = 'screen-' + screen + (railOn ? ' rail-on' : '');
@@ -197,12 +244,14 @@ function applyScreen(screen) {
   rail.setActive(screen);
   if (!changed) return;
   if (ctx.sheet.isOpen()) ctx.sheet.close();
+  if (screens[prev] && screens[prev].hide) screens[prev].hide();
   setBacklight(screen === nav.NIGHT ? 'night' : 'day');
-  // Photos only run behind Home; every other screen covers them.
-  if (screen === nav.HOME) slideshow.start();
+  // Photos run behind Home and on the Photos screen; every other screen covers them.
+  if (screen === nav.HOME || screen === 'photos') slideshow.start();
   else slideshow.stop();
   const scr = screens[screen];
   if (scr) scr.show();
+  runAlerts();
 }
 
 function tick() {
@@ -211,6 +260,7 @@ function tick() {
   applyScreen(currentScreen(ms, mono));
   const scr = screens[lastScreen];
   if (scr && scr.tick) scr.tick();
+  runAlerts();
   const minute = Math.floor(ms / 60000);
   if (minute !== lastMinute) {
     lastMinute = minute;
@@ -261,6 +311,7 @@ async function poll() {
     lastRail = null;
     renderAll();
     applyScreen(currentScreen(nowMs(), performance.now()));
+    runAlerts();
     schedulePoll(60000);
     return;
   }
@@ -282,6 +333,7 @@ async function poll() {
     lastRail = null;
     renderAll();
     applyScreen(currentScreen(nowMs(), performance.now()));
+    runAlerts();
     schedulePoll(60000);
   } else if (res.status === 401) {
     paired = false;
@@ -300,6 +352,13 @@ const ctx = {
   now: nowMs,
   settings,
   sheet: null,
+  toast,
+  slideshow,
+  photoSet: () => (data && data.photos && data.photos.setId) || null,
+  photosChanged: () => schedulePoll(500),
+  tasksChanged: () => schedulePoll(500),
+  /** Settings › Alerts › Play test chime. Resolves false when audio is blocked (plays on the next tap). */
+  testChime: (volume) => chime.play(volume),
   /** PUT one setting; true, or the error code. The reply carries all settings, applied at once. */
   async saveSetting(key, patch) {
     const r = await client.saveSetting(key, patch);
@@ -309,6 +368,7 @@ const ctx = {
       lastMinute = -1;
       tick();
       if (screens.settings) screens.settings.render();
+      if (key === 'photos') slideshow.applyOptions();
       if (key === 'weather') {
         screens.weather.invalidate();
         schedulePoll(500);
@@ -324,12 +384,23 @@ const ctx = {
       schedulePoll(500);
     });
   },
+  openTaskLists() {
+    openTaskListsSheet(ctx, (d) => {
+      screens.settings.listsSaved(d);
+      screens.tasks.invalidate();
+      if (lastScreen === 'tasks') screens.tasks.reload();
+      schedulePoll(500);
+    });
+  },
 };
 ctx.sheet = createSheet(document.getElementById('sheet'));
 const screens = {
   calendar: createCalendarScreen(document.getElementById('view-calendar'), ctx),
   weather: createWeatherScreen(document.getElementById('view-weather'), ctx),
   settings: createSettingsScreen(document.getElementById('view-settings'), ctx),
+  tasks: createTasksScreen(document.getElementById('view-tasks'), ctx),
+  photos: createPhotosScreen(document.getElementById('view-photos'), ctx),
+  reflection: createReflectionScreen(document.getElementById('view-reflection'), ctx),
 };
 
 function goTarget(el) {
@@ -341,8 +412,28 @@ function goTarget(el) {
   return v && nav.viewEnabled(v, features()) ? { go: v } : null;
 }
 
+/** Banner and toast buttons: handled before navigation; they count as a touch but don't peek the rail. */
+function overlayTap(el, mono) {
+  const act = el && el.closest ? el.closest('[data-act]') : null;
+  if (!act || !act.closest('#alerts, #toast')) return false;
+  ui = Object.assign({}, ui, { lastTouchMono: mono });
+  const a = act.getAttribute('data-act');
+  if (a === 'toast-undo') toast.undo();
+  else if (a === 'alert-dismiss' || a === 'alert-open') {
+    alertMem = alertDismiss(alertMem, act.getAttribute('data-k'), nowMs());
+    if (a === 'alert-open') {
+      ui = nav.tap(ui, mono, currentScreen(nowMs(), mono), { go: act.getAttribute('data-kind') === 'tasks' ? 'tasks' : 'calendar' });
+      applyScreen(currentScreen(nowMs(), mono));
+    }
+    runAlerts();
+  }
+  return true;
+}
+
 attachTaps(document.body, (el) => {
   const mono = performance.now();
+  chime.onTap();
+  if (overlayTap(el, mono)) return;
   const before = currentScreen(nowMs(), mono);
   const target = goTarget(el);
   ui = nav.tap(ui, mono, before, target);
@@ -355,6 +446,7 @@ attachTaps(document.body, (el) => {
       const act = el && el.closest ? el.closest('[data-act]') : null;
       const scr = screens[after];
       if (act && scr && scr.onTap) scr.onTap(act, act.getAttribute('data-act'));
+      else if (!act && scr && scr.onBlankTap) scr.onBlankTap();
     }
   }
 });

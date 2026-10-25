@@ -36,8 +36,8 @@ body {
   background: #111;
 }
 
-/* Photos only show behind Home. */
-body:not(.screen-home) .stage {
+/* Photos show behind Home and full-size on the Photos screen (P1b). */
+body:not(.screen-home, .screen-photos) .stage {
   display: none;
 }
 
@@ -402,7 +402,10 @@ body:not(.screen-home) .stage {
 
 .screen-calendar #view-calendar,
 .screen-weather #view-weather,
-.screen-settings #view-settings {
+.screen-settings #view-settings,
+.screen-tasks #view-tasks,
+.screen-photos #view-photos,
+.screen-reflection #view-reflection {
   display: block;
 }
 
@@ -849,9 +852,9 @@ body:not(.screen-home) .stage {
 }
 
 .set-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .set-row,
@@ -1037,4 +1040,462 @@ body:not(.screen-home) .stage {
   flex: 0 0 40px;
   font-size: 32px;
   text-align: right;
+}
+
+/* ---------- P1b: tasks, photos, reflection, alerts, toast (PLAN-v2.md §4, §6, §8, §9) ---------- */
+.set-row .set-value {
+  max-width: 64%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tasks-line {
+  margin-top: 10px;
+  overflow: hidden;
+  font-size: 24px;
+  color: #ffd27a;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tasks-line:empty {
+  display: none;
+}
+
+/* Tasks */
+.tasks-bar {
+  margin-bottom: 4px;
+}
+
+.task-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-tab {
+  width: auto;
+  min-width: 116px;
+  max-width: 260px;
+  padding: 0 20px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tasks-lists-btn {
+  flex: 0 0 auto;
+}
+
+.tasks-meta {
+  height: 28px;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.tasks-scroll {
+  height: 660px;
+  overflow-y: auto;
+}
+
+.tasks-empty {
+  margin-top: 120px;
+  font-size: 30px;
+  text-align: center;
+}
+
+.task-sec {
+  margin: 14px 0 6px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+}
+
+.task-sec.overdue {
+  color: #ff9a8a;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 80px;
+  padding: 0 16px 0 8px;
+  border-radius: 14px;
+  background: #222228;
+  margin-bottom: 8px;
+  font-size: 28px;
+}
+
+.task-row.sub {
+  margin-left: 56px;
+}
+
+.task-check {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  border: 3px solid rgba(255, 255, 255, 0.7);
+  border-radius: 32px;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.task-check.on {
+  border-color: #fff;
+  background: #fff;
+}
+
+.task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.task-row.done .task-title {
+  text-decoration: line-through;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.task-due {
+  flex: 0 0 auto;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.task-row.overdue .task-due {
+  color: #ff9a8a;
+}
+
+/* Photos: a transparent layer over the full-width stage. */
+.screen-photos .stage {
+  left: 96px;
+  width: 1184px;
+}
+
+#view-photos {
+  padding: 0;
+  background: transparent;
+}
+
+.stage.fill .layer img {
+  object-fit: cover;
+}
+
+.stage.no-captions .caption {
+  display: none;
+}
+
+.ph-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  height: 104px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.bar-on .ph-bar {
+  display: flex;
+}
+
+.ph-btn.ph-wide {
+  min-width: 140px;
+}
+
+.ph-btn.on {
+  color: #ff6b81;
+  background: #2a2a31;
+}
+
+.ph-note {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 22px;
+}
+
+.ph-note:empty {
+  display: none;
+}
+
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 88px;
+}
+
+.opt-note {
+  margin: 4px 0 8px;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.test-chime {
+  margin: 8px 0;
+}
+
+/* Calendars sheet: pick row + bell */
+.cal-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cal-pick-row .cal-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cal-bell {
+  flex: 0 0 150px;
+  height: 80px;
+  margin-top: 8px;
+  padding: 0 8px;
+  font-size: 20px;
+}
+
+/* Reflection */
+.refl-wrap {
+  display: flex;
+  gap: 32px;
+  height: 768px;
+}
+
+.refl-now {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding-top: 24px;
+}
+
+.refl-kicker {
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.refl-big-theme {
+  margin: 16px 0 20px;
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.refl-full-practice {
+  font-size: 30px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.88);
+  white-space: pre-line;
+}
+
+.refl-empty {
+  margin-top: 200px;
+  font-size: 32px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.refl-side {
+  flex: 0 0 420px;
+  overflow-y: auto;
+}
+
+.refl-sec {
+  margin: 16px 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+}
+
+.refl-week {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80px;
+  margin-bottom: 8px;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 14px;
+  background: #222228;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+}
+
+.refl-week.current {
+  outline: 3px solid #fff;
+}
+
+.refl-week.future {
+  opacity: 0.55;
+}
+
+.rw-label {
+  display: block;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rw-theme {
+  display: block;
+  overflow: hidden;
+  font-size: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.refl-hist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.refl-guide-btn {
+  font-size: 22px;
+}
+
+/* Alert banners: over every screen, right of the rail; under sheets. */
+.alerts {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  left: 112px;
+  z-index: 15;
+  display: none;
+}
+
+.alerts.open {
+  display: block;
+}
+
+/* On Home the banner stays over the photo so the clock and agenda panel (486 px) remain readable. */
+body.screen-home .alerts {
+  left: 16px;
+  right: 502px;
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 88px;
+  margin-bottom: 8px;
+  padding: 0 8px 0 20px;
+  border-radius: 16px;
+  background: #2b2b33;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  font-size: 28px;
+}
+
+.alert-chip {
+  flex: 0 0 16px;
+  height: 56px;
+  border-radius: 8px;
+  background: #8a96a3;
+}
+
+.alert-chip.tasks {
+  background: #ffd27a;
+}
+
+.alert-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.alert-btn {
+  flex: 0 0 auto;
+}
+
+.alert-more {
+  display: inline-block;
+  padding: 6px 16px;
+  border-radius: 10px;
+  background: #2b2b33;
+  font-size: 22px;
+}
+
+/* Toast */
+.toast {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  z-index: 25;
+  display: none;
+  align-items: center;
+  gap: 24px;
+  height: 88px;
+  padding: 0 8px 0 28px;
+  margin-left: -260px;
+  box-sizing: border-box;
+  width: 520px;
+  border-radius: 16px;
+  background: #fff;
+  color: #000;
+  font-size: 28px;
+}
+
+.toast.open {
+  display: flex;
+}
+
+.toast-text {
+  flex: 1 1 auto;
+}
+
+.toast-btn {
+  background: #222228;
+  color: #fff;
+}
+
+/* Wide sheet (Alerts): two columns side by side, no scrolling. */
+.sheet-panel.wide {
+  width: 1120px;
+}
+
+.alert-opts {
+  display: flex;
+  gap: 40px;
+}
+
+.alert-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.alert-col .step-val {
+  min-width: 150px;
+  font-size: 28px;
+}
+
+.alert-col .step-label {
+  font-size: 24px;
+}
+
+.alert-col .seg-btn {
+  width: 110px;
 }

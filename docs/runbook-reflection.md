@@ -40,6 +40,13 @@ The date range is read from either layout, so both files work without `--start/-
 Synthetic examples: `test/fixtures/guide-synthetic.html` (draft) and
 `test/fixtures/guide-synthetic-published.html` (published).
 
+## Reflection screen (P1b)
+
+Tapping Home's reflection opens the Reflection screen: this week's theme and full practice, this
+guide's weeks (past weeks open; future weeks show the theme only) and up to 5 earlier guides. The Worker
+keeps the 6 newest guides by start date and prunes older ones on publish. The frame reads them with its
+device token from `GET /api/reflection`; nothing is fetched for unpublished guides.
+
 ## Gaps
 
 If today is outside every published week, the frame leaves the slot empty and `/api/health` reports

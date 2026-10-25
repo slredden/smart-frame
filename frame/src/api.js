@@ -76,8 +76,16 @@ export function createClient(token, fetchImpl, base = '') {
     weather: () => call('GET', '/api/weather'),
     calendars: () => call('GET', '/api/calendars'),
     syncCalendars: () => call('POST', '/api/calendars/sync'),
-    saveSelection: (ids) => call('PUT', '/api/calendars/selection', { selected: ids }),
+    saveSelection: (ids, alertsOff) => call('PUT', '/api/calendars/selection', alertsOff ? { selected: ids, alertsOff } : { selected: ids }),
     saveSetting: (key, patch) => call('PUT', '/api/settings/' + key, patch),
     searchPlaces: (q) => call('GET', '/api/settings/weather/search?q=' + encodeURIComponent(q)),
+    // P1b (PLAN-v2.md §4, §6, §8)
+    tasks: () => call('GET', '/api/tasks'),
+    tasklists: () => call('GET', '/api/tasklists'),
+    syncTaskLists: () => call('POST', '/api/tasklists/sync'),
+    saveTaskLists: (ids) => call('PUT', '/api/tasklists/selection', { selected: ids }),
+    completeTask: (list, task) => call('POST', '/api/tasks/' + encodeURIComponent(list) + '/' + encodeURIComponent(task) + '/complete', { status: 'completed' }),
+    reflection: () => call('GET', '/api/reflection'),
+    photoFlag: (setId, n, patch) => call('PUT', '/api/photos/' + encodeURIComponent(setId) + '/' + encodeURIComponent(n), patch),
   };
 }

@@ -6,6 +6,8 @@ import { startPicker, stepPicker } from './google/picker.js';
 import { buildHealth } from './health.js';
 import { syncCalendarList, listCalendars, setSelection, refreshCalendar, MAX_SELECTED } from './google/calendar.js';
 import { publishReflection } from './reflection.js';
+import { syncTaskLists, listTaskLists, setTaskListSelection, refreshTasks, tasksScope, MAX_LISTS } from './google/tasks.js';
+import { hiddenCount, unhideAll } from './photos.js';
 import { settingsWithHistory, putSetting, resetSettings } from './settings.js';
 import { refreshWeather, searchPlaces } from './weather.js';
 
@@ -61,18 +63,39 @@ export async function handleAdmin(request, env, url, admin, deps = {}) {
     return json({ calendars: await listCalendars(db), max: MAX_SELECTED });
   }
   if (path === '/admin/api/calendars/sync' && method === 'POST') {
-    const r = await syncCalendarList(env);
+    const r = await syncCalendarList(env, { fetchImpl });
     return r.ok ? json({ calendars: await listCalendars(db), max: MAX_SELECTED }) : error(409, r.error);
   }
   if (path === '/admin/api/calendars' && method === 'PUT') {
     const body = await readJson(request, 16384);
     if (body.error) return error(400, body.error);
-    const r = await setSelection(db, body.value && body.value.selected);
+    const r = await setSelection(db, body.value && body.value.selected, body.value && body.value.alertsOff);
     if (!r.ok) return error(400, r.error);
     // Refresh now so the frame picks the new selection up on its next poll, not the next cron.
-    const c = await refreshCalendar(env);
+    const c = await refreshCalendar(env, { fetchImpl });
     return json({ ok: true, selected: r.selected, refreshed: !!c.ok });
   }
+
+  // P1b task lists (PLAN-v2.md §4.2), same shape as calendars.
+  if (path === '/admin/api/tasklists' && method === 'GET') {
+    return json({ lists: await listTaskLists(db), max: MAX_LISTS, scope: await tasksScope(db) });
+  }
+  if (path === '/admin/api/tasklists/sync' && method === 'POST') {
+    const r = await syncTaskLists(env, { fetchImpl });
+    return r.ok ? json({ lists: await listTaskLists(db), max: MAX_LISTS }) : error(409, r.error);
+  }
+  if (path === '/admin/api/tasklists' && method === 'PUT') {
+    const body = await readJson(request, 8192);
+    if (body.error) return error(400, body.error);
+    const r = await setTaskListSelection(db, body.value && body.value.selected);
+    if (!r.ok) return error(400, r.error);
+    const t = await refreshTasks(env, { fetchImpl, force: true });
+    return json({ ok: true, selected: r.selected, refreshed: !!t.ok });
+  }
+
+  // P1b photo flags: hidden count and "Unhide all" (PLAN-v2.md §6).
+  if (path === '/admin/api/photos' && method === 'GET') return json({ hidden: await hiddenCount(db) });
+  if (path === '/admin/api/photos/unhide-all' && method === 'POST') return json({ ok: true, unhidden: await unhideAll(db) });
 
   // v2 frame settings (PLAN-v2.md §7.2): view with history, reset, and the weather fallback.
   if (path === '/admin/api/settings' && method === 'GET') return json({ settings: await settingsWithHistory(env) });
