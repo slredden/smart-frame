@@ -724,6 +724,16 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   await page.close();
 }
 
+// Photos never idles (2026-10-25): with the same 3 s idle it is still up well past it.
+{
+  const page = await open({ screen: 'photos', at: AT, extra: '&idle=0.05' });
+  await sleep(9000);
+  expectBody('photos no idle', await bodyOf(page), 'screen-photos');
+  console.log('photos no idle'.padEnd(18), 'ok');
+  if (page.errors.length) failures.push('photos no idle: JS errors: ' + page.errors.join(' | '));
+  await page.close();
+}
+
 // Idle: a screen falls back to the schedule (Home by day) after the idle timeout (?idle=0.05 → 3 s).
 {
   const page = await open({ screen: 'calendar', at: AT, extra: '&idle=0.05' });

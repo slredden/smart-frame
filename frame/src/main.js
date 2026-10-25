@@ -272,12 +272,35 @@ function tick() {
   }
 }
 
+// A reload (new build, 3 AM) on a screen that never idles (Photos) comes back to it, not to Home.
+const RESUME_KEY = 'sf.resumeView';
+function reloadKeepingView() {
+  try {
+    if (nav.keepsAwake(ui.view) && lastScreen === ui.view) localStorage.setItem(RESUME_KEY, JSON.stringify({ view: ui.view, at: Date.now() }));
+  } catch {
+    // ignore
+  }
+  location.reload();
+}
+
+function resumeView() {
+  let r;
+  try {
+    r = JSON.parse(localStorage.getItem(RESUME_KEY) || 'null');
+    localStorage.removeItem(RESUME_KEY);
+  } catch {
+    r = null;
+  }
+  if (!r || !nav.keepsAwake(r.view) || !(Math.abs(Date.now() - r.at) < 10 * 60000)) return;
+  ui = { view: r.view, lastTouchMono: performance.now(), peekUntilMono: null };
+}
+
 function maybeReload(ms, mono) {
   if (MOCK) return;
   const quiet = quietMoment({ awake: nav.awake(ui, mono, idleMs()), crossfading: slideshow.isFading() });
   if (!quiet) return;
   if (buildChanged(BUILD, serverBuild)) {
-    location.reload();
+    reloadKeepingView();
     return;
   }
   const today = ymdIn(ms, TZ);
@@ -293,7 +316,7 @@ function maybeReload(ms, mono) {
     } catch {
       // ignore
     }
-    location.reload();
+    reloadKeepingView();
   }
 }
 
@@ -484,6 +507,7 @@ function onFrameTap(el, mono) {
 }
 
 // A pinned screen starts as if just opened from the rail: the rail shows, then hides after 10 s.
+if (!MOCK) resumeView();
 if (MOCK && forcedScreen && screens[forcedScreen]) ui = { view: forcedScreen, lastTouchMono: performance.now(), peekUntilMono: performance.now() + nav.RAIL_PEEK_S * 1000 };
 if (MOCK && params.get('peek') === '1') ui = { view: nav.HOME, lastTouchMono: performance.now(), peekUntilMono: performance.now() + nav.RAIL_PEEK_S * 1000 };
 

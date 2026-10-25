@@ -203,6 +203,10 @@ onTap(target) : if screen == NIGHT → view = 'home', peek 10 s           # wake
 - `idleMs` is the Settings idle timeout (default 10 min, the v1 value). When it runs out, the frame goes
   back to the scheduled screen, which is Home in the day window and the night clock in the night window.
 - A frame woken at 23:00 that is left alone falls back to the night clock after the idle timeout.
+- **Photos never idles (2026-10-25).** While the Photos screen is showing, the idle timeout doesn't
+  apply and the schedule doesn't take over, so it also stays up through night mode: the frame works as a
+  plain photo frame until someone leaves Photos from the rail. Every other screen still returns to
+  Home or the night clock. A build or 3 AM reload on Photos comes back to Photos.
 - `version.js`'s quiet-moment check uses `awake()` instead of `overrideActive`, so a safe reload still
   waits until nobody is using the frame.
 - Layout follows `railShown` through the body's `rail-on` class: hidden = full-width screen plus the
@@ -411,7 +415,7 @@ on `/admin`. v2 adds it on the frame, in **Settings** (§7), with a shortcut fro
   in `/api/state`; `/admin` Photos gets a "Hidden (n) · Unhide all" control. Hide asks for confirmation
   on the frame ("Hide this photo? Undo"), 5 s undo toast.
 - Picking a new set keeps working from `/admin` (Picker API, v1). The frame never starts a Picker session.
-- Pause holds the current photo until "Play" or idle return to Home.
+- Pause holds the current photo until "Play" or leaving the screen (Photos never idles, §2).
 
 ## 7. Settings screen and server-side settings
 
@@ -1550,6 +1554,7 @@ Breakdown inside P1 and P1b:
 | Rail auto-hide | 2026-10-24 | The rail hides 10 s after the last touch on every screen (was Home only, 30 s). An empty-space tap shows it; controls work without toggling it and restart a showing rail. e2e: hide/reveal on all 7 screens, checkbox with the rail hidden and shown |
 | Rail full width | 2026-10-24 | Off Home, the screen uses all 1280 px while the rail is hidden (no 96 px strip); the rail pushes it right while shown. A transparent 32 px left-edge zone brings the rail back; a blank 96×72 corner keeps the kiosk Menu zone clear. e2e on all 6 non-Home screens: view at x=0, w=1280 when hidden and x=96 when shown, no control under the edge zone, edge tap reveals, checkbox/undo/Settings work with the rail hidden without showing it |
 | P2 Controls (agent side) | 2026-10-24 | Secrets plumbing (`HA_TOKEN`, `SPOTIFY_CLIENT_SECRET` optional in worker-secrets; `SPOTIFY_CLIENT_ID` var). Spotify OAuth on `/admin`, `/api/spotify/state` and actions, last speaker by name, `device_absent`. Cameras via HA (GET only, `controls_cams` allowlist on `/admin`, streamed `no-store` images, indoor 403 unless revealed). No `HA` binding in `wrangler.jsonc` yet: detected at runtime, "not connected" until the VPC Service exists. Controls screen with `features.controls` on: Spotify card (play/pause/skip/volume, optimistic with revert toast, speaker list), 2×2 snapshots (fetched only when `updated` changes, age and stale marks, tap to enlarge), indoor covered with tap-to-show for 30–60 s (Settings › Indoor cameras, off by default), polls every 5 s only while shown. Full-width/push rail and 32 px edge zone respected. Waits on Chief's §14 steps 12–13 and Stephen's Spotify connect |
+| Photos no idle | 2026-10-25 | The idle return to Home no longer applies on the Photos screen (`nav.NO_IDLE`); night mode doesn't take over it either. Other screens unchanged. A reload on Photos resumes Photos |
 
 ## 14. Stephen's manual steps
 

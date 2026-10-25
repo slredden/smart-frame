@@ -30,8 +30,17 @@ export function awake(state, mono, idleMs) {
   return state.lastTouchMono !== null && mono >= state.lastTouchMono && mono - state.lastTouchMono < idleMs;
 }
 
-/** The screen to show now: the touched view while awake, otherwise the schedule (Home or night). */
+/**
+ * Screens the idle return to Home never applies to (2026-10-25): Photos stays up until someone leaves
+ * it, so the frame can work as a plain photo frame. The schedule doesn't take over either, so Photos
+ * stays up through night mode too. `awake` still means "touched lately" (reloads wait for it to end).
+ */
+export const NO_IDLE = ['photos'];
+export const keepsAwake = (view) => NO_IDLE.indexOf(view) >= 0;
+
+/** The screen to show now: the touched view while awake (or Photos, always), otherwise the schedule. */
 export function screenAt(state, minutes, mono, idleMs, schedule = DEFAULT_SCHEDULE) {
+  if (keepsAwake(state.view) && state.lastTouchMono !== null) return state.view;
   return awake(state, mono, idleMs) ? state.view : scheduled(minutes, schedule);
 }
 
@@ -81,8 +90,9 @@ export function tap(state, mono, screen, target) {
   return next;
 }
 
-/** Milliseconds until the frame falls back to the schedule, or null when it isn't awake. */
+/** Milliseconds until the frame falls back to the schedule, or null when it isn't awake or never will. */
 export function msUntilIdle(state, mono, idleMs) {
+  if (keepsAwake(state.view)) return null;
   return awake(state, mono, idleMs) ? idleMs - (mono - state.lastTouchMono) : null;
 }
 
