@@ -34,6 +34,10 @@ acceptance checks it must pass before the next phase starts.
 
 ## 1. Design decisions (fixed)
 
+> **Superseded in part (v1.2, 2026-10-24):** layout A, the A/B tap swap and the 6–7 AM B slot are
+> removed. Home is layout B from 6:00 to 22:00, then night. See [PLAN-v2.md](PLAN-v2.md) §2. This file
+> stays as the v1 record.
+
 Decided by Stephen on 2026-10-24. Source: the [Smart frame layout](https://cursor.com/canvas/store-593ad622-8000-409c-abb6-7c70dfc329fd/4e001d81-7509-463f-a5a4-a76cd8b088f3) design page.
 
 | Area | Decision |
@@ -329,6 +333,9 @@ picked media, which the cache needs. If they forbid long-term caching, fall back
 each time a session is opened, and record the decision in PLAN.md.
 
 ## 8. Layout and schedule state machine
+
+> **v1.2:** replaced by `scheduled(minutes, schedule)` → HOME/NIGHT in `schedule.js` and the touch/idle
+> state in `nav.js` ([PLAN-v2.md](PLAN-v2.md) §2.1, §2.5).
 
 A pure module, `frame/src/schedule.js`, with no DOM or timers, unit-tested exhaustively.
 

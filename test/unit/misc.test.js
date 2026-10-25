@@ -71,7 +71,9 @@ describe('reload rules', () => {
     expect(dailyReloadDue(3 * 60 + 5, '2026-10-24', '2026-10-24', 7200000)).toBe(false);
     expect(dailyReloadDue(3 * 60 + 45, '2026-10-24', null, 7200000)).toBe(false);
     expect(dailyReloadDue(3 * 60 + 5, '2026-10-24', null, 60000)).toBe(false);
-    expect(quietMoment({ overrideActive: false, crossfading: true })).toBe(false);
+    expect(quietMoment({ awake: false, crossfading: true })).toBe(false);
+    expect(quietMoment({ awake: true, crossfading: false })).toBe(false);
+    expect(quietMoment({ awake: false, crossfading: false })).toBe(true);
   });
 });
 

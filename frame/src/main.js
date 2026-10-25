@@ -1,9 +1,9 @@
 // Frame entry point. Wires the pure modules to the DOM and timers.
 import { minutesOfDay, ymdIn } from '../../shared/time.js';
-import * as sched from './schedule.js';
+import * as nav from './nav.js';
 import { attachTaps } from './idle.js';
 import { setBacklight } from './backlight.js';
-import { clockParts, shortDate, longDate, temp, weekdayShort, staleLabel } from './format.js';
+import { clockParts, longDate, temp, weekdayShort, staleLabel } from './format.js';
 import { nextLine, allDayLine, agendaRows } from './agenda.js';
 import { takeToken, createClient, backoffMs, saveSnapshot, loadSnapshot } from './api.js';
 import { buildChanged, quietMoment, dailyReloadDue, RELOAD_KEY } from './version.js';
@@ -16,7 +16,7 @@ const params = new URLSearchParams(location.search);
 const MOCK = params.get('mock') === '1';
 const ICON_BASE = './icons/';
 
-// Mock-only test hooks: freeze the clock (?at=ISO) and force a screen (?screen=a|b|night).
+// Mock-only test hooks: freeze the clock (?at=ISO) and force a screen (?screen=home|night).
 const frozenAt = MOCK && params.get('at') ? Date.parse(params.get('at')) : NaN;
 const forcedScreen = MOCK ? params.get('screen') : null;
 const bootMono = performance.now();
@@ -25,7 +25,7 @@ let clockOffset = 0; // server-corrected offset when the frame clock is off by >
 const nowMs = () => (isFinite(frozenAt) ? frozenAt + (performance.now() - bootMono) : Date.now() + clockOffset);
 
 let data = loadSnapshot(localStorage);
-let ui = sched.initialState();
+let ui = nav.initialState();
 let lastScreen = '';
 let lastMinute = -1;
 let paired = true;
@@ -64,7 +64,6 @@ function renderClock(ms) {
   const [time, ampm] = clockParts(ms, TZ);
   setText('time', time);
   setText('ampm', ampm);
-  setText('shortDate', shortDate(ms, TZ));
   setText('longDate', longDate(ms, TZ));
   // Night burn-in guard: move the clock ±8 px on a 10-minute step.
   const step = Math.floor(minutesOfDay(ms, TZ) / 10);
@@ -115,7 +114,6 @@ function renderWeather(ms) {
 function renderCalendar(ms) {
   const c = data && data.calendar;
   setText('allDay', allDayLine(c));
-  setText('next', nextLine(c, ms, TZ));
   setText('calStale', c ? staleLabel(c.fetchedAt, ms) : '');
   const { rows, more } = agendaRows(c, ms, TZ, 4);
   for (const el of binds.agenda || []) {
@@ -163,25 +161,23 @@ function renderAll() {
 }
 
 function currentScreen(ms, mono) {
-  if (forcedScreen === 'a') return sched.A;
-  if (forcedScreen === 'b') return sched.B;
-  if (forcedScreen === 'night') return sched.NIGHT;
-  return sched.screenAt(ui, minutesOfDay(ms, TZ), mono, idleMs());
+  if (forcedScreen === 'home') return nav.HOME;
+  if (forcedScreen === 'night') return nav.NIGHT;
+  return nav.screenAt(ui, minutesOfDay(ms, TZ), mono, idleMs());
 }
 
 function applyScreen(screen) {
   if (screen === lastScreen) return;
   lastScreen = screen;
   document.body.className = 'screen-' + screen;
-  setBacklight(screen === sched.NIGHT ? 'night' : 'day');
-  if (screen === sched.NIGHT) slideshow.stop();
+  setBacklight(screen === nav.NIGHT ? 'night' : 'day');
+  if (screen === nav.NIGHT) slideshow.stop();
   else slideshow.start();
 }
 
 function tick() {
   const ms = nowMs();
   const mono = performance.now();
-  ui = sched.expire(ui, mono, idleMs());
   applyScreen(currentScreen(ms, mono));
   const minute = Math.floor(ms / 60000);
   if (minute !== lastMinute) {
@@ -193,7 +189,7 @@ function tick() {
 
 function maybeReload(ms, mono) {
   if (MOCK) return;
-  const quiet = quietMoment({ overrideActive: sched.overrideActive(ui, mono, idleMs()), crossfading: slideshow.isFading() });
+  const quiet = quietMoment({ awake: nav.awake(ui, mono, idleMs()), crossfading: slideshow.isFading() });
   if (!quiet) return;
   if (buildChanged(BUILD, serverBuild)) {
     location.reload();
@@ -218,7 +214,7 @@ function maybeReload(ms, mono) {
 
 attachTaps(document.body, () => {
   const mono = performance.now();
-  ui = sched.tap(ui, minutesOfDay(nowMs(), TZ), mono, idleMs());
+  ui = nav.tap(ui, mono);
   applyScreen(currentScreen(nowMs(), mono));
 });
 

@@ -6,8 +6,8 @@ const DAILY_START = 3 * 60; // 3:00 AM Denver, inside night mode
 const DAILY_END = 3 * 60 + 30;
 
 /** True when it's safe to swap the page out from under the viewer. */
-export function quietMoment({ overrideActive, crossfading }) {
-  return !overrideActive && !crossfading;
+export function quietMoment({ awake, crossfading }) {
+  return !awake && !crossfading;
 }
 
 /** A newer build is deployed. Ignores 'dev' builds and missing values. */

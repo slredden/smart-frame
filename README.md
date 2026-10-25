@@ -6,11 +6,11 @@ hosted on Cloudflare Workers.
 It shows only five things: photos picked from Google Photos, the clock and date, today's Google
 Calendar events, Denver weather from Open-Meteo, and the current week's private reflection.
 
-- Layout A, photo first: 7 AM–10 PM
-- Layout B, split: 6–7 AM
+- Home, 6 AM–10 PM: the photo on the left, and the clock, weather, agenda and reflection on the right
 - Dimmed clock: 10 PM–6 AM
-- A touch swaps A and B during the day. At night the first touch wakes the screen and the second
-  swaps A and B. After 10 idle minutes the frame goes back to its schedule.
+- At night a touch wakes the frame to Home. After 10 idle minutes it goes back to its schedule.
+- v1.2 (2026-10-24) removed v1's full-bleed layout A and the A/B tap swap. The v2 screens and menu rail
+  are planned in [PLAN-v2.md](PLAN-v2.md).
 
 **Status:** being built. Not deployed: deploys are off until the `DEPLOY_ENABLED` repo variable is set.
 Runs on the Cloudflare Workers Free plan (D1 + KV, no R2) at the default `workers.dev` address.

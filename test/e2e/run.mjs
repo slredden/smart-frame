@@ -39,10 +39,10 @@ const failures = [];
 const AT = '2026-10-24T18:42:00Z'; // 12:42 PM MDT
 
 const cases = [
-  { name: 'a', screen: 'a', at: AT, check: ['.card', '#screen-a'] },
-  { name: 'b', screen: 'b', at: AT, check: ['.rail', '#screen-b'] },
+  { name: 'home', screen: 'home', at: AT, check: ['.rail', '#home'] },
   { name: 'night', screen: 'night', at: '2026-10-25T05:10:00Z', check: ['.night-clock'] },
-  { name: 'morning-scheduled', screen: '', at: '2026-10-24T12:30:00Z', expectBody: 'screen-b' },
+  { name: 'morning-scheduled', screen: '', at: '2026-10-24T12:30:00Z', expectBody: 'screen-home' },
+  { name: 'night-scheduled', screen: '', at: '2026-10-25T05:10:00Z', expectBody: 'screen-night' },
 ];
 
 for (const c of cases) {
@@ -83,11 +83,12 @@ for (const c of cases) {
   await page.close();
 }
 
-// A single tap at night wakes to A; a second swaps to B.
+// v1.2: a tap at night wakes to Home; a second tap stays on Home (no A/B swap).
 {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800, hasTouch: true });
   await page.goto(base + '/?mock=1&at=' + encodeURIComponent('2026-10-25T05:10:00Z'), { waitUntil: 'networkidle0' });
+  const before = await page.evaluate(() => document.body.className);
   await page.touchscreen.tap(640, 400);
   await new Promise((r) => setTimeout(r, 300));
   const first = await page.evaluate(() => document.body.className);
@@ -95,9 +96,10 @@ for (const c of cases) {
   await page.touchscreen.tap(640, 400);
   await new Promise((r) => setTimeout(r, 300));
   const second = await page.evaluate(() => document.body.className);
-  if (!first.includes('screen-a')) failures.push('tap: night → ' + first);
-  if (!second.includes('screen-b')) failures.push('tap: second tap → ' + second);
-  console.log('taps'.padEnd(18), first, '→', second);
+  if (!before.includes('screen-night')) failures.push('tap: before → ' + before);
+  if (!first.includes('screen-home')) failures.push('tap: night → ' + first);
+  if (!second.includes('screen-home')) failures.push('tap: second tap → ' + second);
+  console.log('taps'.padEnd(18), before, '→', first, '→', second);
   await page.close();
 }
 
