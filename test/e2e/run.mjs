@@ -117,7 +117,17 @@ async function auditHits(page, name) {
     const boxes = els.map((el) => ({ el, b: el.getBoundingClientRect() }));
     for (const { el, b } of boxes) {
       if (b.width < 63.5 || b.height < 63.5) out.push('small ' + label(el) + ' ' + Math.round(b.width) + '×' + Math.round(b.height));
-      if (b.left < 96 && b.bottom > 728) out.push('in Menu zone ' + label(el));
+      // The kiosk Menu zone (bottom-left 96×72) must not reach any control: sample the overlap.
+      if (b.left < 96 && b.bottom > 728) {
+        let reach = false;
+        for (let x = Math.max(0, b.left) + 2; x < Math.min(96, b.right) && !reach; x += 8) {
+          for (let y = Math.max(728, b.top) + 2; y < Math.min(800, b.bottom) && !reach; y += 8) {
+            const at = document.elementFromPoint(x, y);
+            if (at && el.contains(at)) reach = true;
+          }
+        }
+        if (reach) out.push('in Menu zone ' + label(el));
+      }
     }
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
@@ -169,8 +179,41 @@ async function tapSel(page, sel) {
 
 const bodyOf = (page) => page.evaluate(() => document.body.className);
 
-/** Empty space on every screen: the rail's own 96 px column, mid-height (clear of the Menu zone). */
-const EMPTY = { x: 48, y: 400 };
+/**
+ * Empty space on every screen with the rail hidden: the left edge, mid-height (clear of the Menu zone).
+ * On Home that's the photo; elsewhere it's the transparent 32 px bring-back zone (#rail-edge).
+ */
+const EMPTY = { x: 16, y: 400 };
+const EDGE_W = 32;
+
+/** Rail hidden on a non-Home screen: the view is full width and no control sits under the edge zone. */
+async function auditFullWidth(page, scr, railOn) {
+  const r = await page.evaluate((s, w) => {
+    const v = document.getElementById('view-' + s).getBoundingClientRect();
+    const st = document.getElementById('stage').getBoundingClientRect();
+    const edge = document.getElementById('rail-edge');
+    const edgeShown = getComputedStyle(edge).display !== 'none';
+    const eb = edge.getBoundingClientRect();
+    const under = Array.prototype.filter
+      .call(document.querySelectorAll('[data-act], [data-go], button, a[href], input, select, textarea, label, .tap-row'), (el) => {
+        if (el.closest('#nav-rail')) return false;
+        const b = el.getBoundingClientRect();
+        if (!b.width || !b.height || getComputedStyle(el).visibility === 'hidden') return false;
+        return b.left < w && b.right > 0 && b.top < 728 && b.bottom > 0;
+      })
+      .map((el) => (el.getAttribute('data-act') || el.className) + ' @' + Math.round(el.getBoundingClientRect().left));
+    const cornerShown = getComputedStyle(document.getElementById('rail-corner')).display !== 'none';
+    return { left: v.left, width: v.width, stLeft: st.left, stWidth: st.width, edgeShown, ew: eb.width, eh: eb.bottom, under, cornerShown };
+  }, scr, EDGE_W);
+  const tag = 'rail ' + scr + (railOn ? ' shown' : ' hidden');
+  const [wantL, wantW] = railOn ? [96, 1184] : [0, 1280];
+  if (r.left !== wantL || r.width !== wantW) failures.push(tag + ': view at x=' + r.left + ' w=' + r.width + ', wanted x=' + wantL + ' w=' + wantW);
+  if (scr === 'photos' && (r.stLeft !== wantL || r.stWidth !== wantW)) failures.push(tag + ': photo stage at x=' + r.stLeft + ' w=' + r.stWidth);
+  if (r.edgeShown === railOn) failures.push(tag + ': edge zone ' + (r.edgeShown ? 'shown' : 'missing'));
+  if (!railOn && (r.ew !== EDGE_W || r.eh > 728)) failures.push(tag + ': edge zone is ' + r.ew + ' wide, ends at ' + r.eh);
+  if (r.cornerShown !== (!railOn && scr !== 'photos')) failures.push(tag + ': Menu corner guard ' + (r.cornerShown ? 'shown' : 'missing'));
+  if (!railOn && r.under.length) failures.push(tag + ': controls under the edge zone: ' + r.under.join(', '));
+}
 
 /** A rail item, after an empty-space tap to show the rail if it has hidden (10 s after the last touch). */
 async function railTap(page, view) {
@@ -457,23 +500,29 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   await sleep(10600);
   for (const [scr, page] of pages) {
     expectBody('rail ' + scr + ' hides after 10 s', await bodyOf(page), 'screen-' + scr, 'rail-on');
+    if (scr !== 'home') await auditFullWidth(page, scr, false);
+    if (scr !== 'home') await auditHits(page, 'rail ' + scr + ' hidden');
+    if (scr === 'tasks' || scr === 'calendar' || scr === 'photos') await page.screenshot({ path: join(OUT, 'rail-hidden-' + scr + '.png') });
     const hit = await page.evaluate((p) => {
       const el = document.elementFromPoint(p.x, p.y);
-      return el ? (el.closest('[data-act], [data-go], [data-rail], button, a[href], input, select, label, .tap-row') ? 'control ' + el.className : 'empty') : 'nothing';
+      if (!el) return 'nothing';
+      if (el.closest('[data-act], [data-go], [data-rail], button, a[href], input, select, label, .tap-row')) return 'control ' + el.className;
+      return el.id === 'rail-edge' ? 'edge' : 'empty ' + el.className;
     }, EMPTY);
-    if (hit !== 'empty') failures.push('rail ' + scr + ': the empty-space spot is ' + hit);
+    const wantHit = scr === 'home' ? 'empty' : 'edge';
+    if (!hit.startsWith(wantHit)) failures.push('rail ' + scr + ': the left-edge spot is ' + hit + ', wanted ' + wantHit);
     await page.touchscreen.tap(EMPTY.x, EMPTY.y);
     await sleep(550);
     expectBody('rail ' + scr + ' empty tap', await bodyOf(page), 'rail-on');
     expectBody('rail ' + scr + ' empty tap keeps screen', await bodyOf(page), 'screen-' + scr);
-    if (scr === 'tasks') await page.screenshot({ path: join(OUT, 'rail-reveal-tasks.png') });
-    if (scr !== 'tasks') await page.close();
+    if (scr !== 'home') await auditFullWidth(page, scr, true);
+    if (scr === 'tasks' || scr === 'calendar' || scr === 'photos') await page.screenshot({ path: join(OUT, 'rail-shown-' + scr + '.png') });
+    if (scr !== 'tasks' && scr !== 'settings') await page.close();
   }
   // Tasks: a checkbox tap while the rail is hidden keeps it hidden and still checks the task.
   const page = pages.find((p) => p[0] === 'tasks')[1];
   await sleep(10600);
   expectBody('tasks rail hidden', await bodyOf(page), 'screen-tasks', 'rail-on');
-  await page.screenshot({ path: join(OUT, 'rail-hidden-tasks.png') });
   await tapSel(page, '.task-row .task-check');
   expectBody('checkbox with rail hidden', await bodyOf(page), 'screen-tasks', 'rail-on');
   if ((await countOf(page, '.task-check.on')) < 1) failures.push('rail: checkbox did not check while the rail was hidden');
@@ -491,6 +540,17 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   expectBody('checkbox restarted the rail timer', await bodyOf(page), 'rail-on');
   await sleep(6500);
   expectBody('rail hides 10 s after the last control tap', await bodyOf(page), 'screen-tasks', 'rail-on');
+  // Settings with the rail hidden (idle since its reveal): a row opens its sheet, Cancel closes it,
+  // and neither shows the rail; the view stays full width.
+  const set = pages.find((p) => p[0] === 'settings')[1];
+  expectBody('settings rail hidden', await bodyOf(set), 'screen-settings', 'rail-on');
+  await tapSel(set, '[data-act="set-idle"]');
+  if (!(await countOf(set, '#sheet.open'))) failures.push('rail: Settings row did not open its sheet with the rail hidden');
+  expectBody('settings row with rail hidden', await bodyOf(set), 'screen-settings', 'rail-on');
+  await tapSel(set, '[data-act="sheet-cancel"]');
+  expectBody('settings cancel with rail hidden', await bodyOf(set), 'screen-settings', 'rail-on');
+  await auditFullWidth(set, 'settings', false);
+  await set.close();
   console.log('rail auto-hide'.padEnd(18), 'ok (' + pages.length + ' screens)');
   for (const [, p] of pages) if (p.errors && p.errors.length) failures.push('rail auto-hide: JS errors: ' + p.errors.join(' | '));
   await page.close();

@@ -394,10 +394,61 @@ body:not(.screen-home, .screen-photos) .stage {
 }
 
 .view {
-  left: 96px;
+  left: 0;
   box-sizing: border-box;
-  padding: 16px 24px;
+  padding: 16px 24px 16px 48px;
   background: #16161a;
+}
+
+/*
+ * Screens other than Home use the full 1280 px while the rail is hidden. When the rail shows it pushes
+ * them right by 96 px (no overlay), so nothing under it is hidden while it is up. No transition: a
+ * left/width animation relayouts every frame on Chrome 106.
+ */
+.rail-on .view {
+  left: 96px;
+  padding-left: 24px;
+}
+
+/*
+ * Bring-back zone (PLAN-v2.md §2.3): a transparent 32 px strip on the left edge, over the content,
+ * shown only while the rail is hidden on a non-Home screen. It stops at 728 px (the kiosk Menu area).
+ * A tap on it is an empty-space tap, so the rail shows. Views keep 48 px left padding while the rail
+ * is hidden, so no control ever sits under it (e2e checks).
+ */
+.rail-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 14;
+  display: none;
+  width: 32px;
+  height: 728px;
+  background: transparent;
+}
+
+body:not(.rail-on, .screen-home, .screen-night) .rail-edge {
+  display: block;
+}
+
+/*
+ * The kiosk Menu button sits over the bottom-left 96×72. With the rail hidden, scrolling lists would run
+ * under it, so a blank corner in the view colour covers that spot (lists scroll beneath it). Photos has
+ * no controls there and keeps its full-bleed picture. A tap on it is an empty-space tap.
+ */
+.rail-corner {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 14;
+  display: none;
+  width: 96px;
+  height: 72px;
+  background: #16161a;
+}
+
+body:not(.rail-on, .screen-home, .screen-night, .screen-photos) .rail-corner {
+  display: block;
 }
 
 .screen-calendar #view-calendar,
@@ -902,12 +953,16 @@ body:not(.screen-home, .screen-photos) .stage {
   top: 0;
   right: 0;
   bottom: 0;
-  left: 96px;
+  left: 0;
   z-index: 20;
   display: none;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.7);
+}
+
+.rail-on .sheet {
+  left: 96px;
 }
 
 .sheet.open {
@@ -1180,6 +1235,11 @@ body:not(.screen-home, .screen-photos) .stage {
 
 /* Photos: a transparent layer over the full-width stage. */
 .screen-photos .stage {
+  left: 0;
+  width: 1280px;
+}
+
+.rail-on.screen-photos .stage {
   left: 96px;
   width: 1184px;
 }
@@ -1380,13 +1440,17 @@ body:not(.screen-home, .screen-photos) .stage {
   position: absolute;
   top: 12px;
   right: 16px;
-  left: 112px;
+  left: 48px;
   z-index: 15;
   display: none;
 }
 
 .alerts.open {
   display: block;
+}
+
+.rail-on .alerts {
+  left: 112px;
 }
 
 /* On Home the banner stays over the photo so the clock and agenda panel (486 px) remain readable. */
