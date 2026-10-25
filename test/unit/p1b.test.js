@@ -9,6 +9,7 @@ import { chimeSamples, wav, RATE, SECONDS } from '../../tools/make-chime.mjs';
 import { rangeLabel } from '../../frame/src/screens/reflection.js';
 import { intervalLabel } from '../../frame/src/screens/photos.js';
 import { alertsSummary } from '../../frame/src/screens/settings.js';
+import { bannerSig } from '../../frame/src/banner.js';
 
 const TZ = 'America/Denver';
 const settings = (alerts) => ({ alerts: Object.assign({}, DEFAULTS.alerts, alerts || {}), schedule: DEFAULTS.schedule });
@@ -268,5 +269,20 @@ describe('labels', () => {
     expect(alertsSummary(Object.assign({}, DEFAULTS.alerts, { leadMin: 0 }))).toBe('Tasks only · chime 60%');
     expect(alertsSummary(Object.assign({}, DEFAULTS.alerts, { leadMin: 0, tasks: false }))).toBe('Off');
     expect(alertsSummary(Object.assign({}, DEFAULTS.alerts, { chime: false }))).toBe('10 min · no chime');
+  });
+});
+
+describe('banner redraw signature (no rebuild mid-tap)', () => {
+  const a = { kind: 'event', key: 'e1', color: '#4285f4', start: '2026-10-24T15:00:00Z' };
+  const t = { kind: 'tasks', key: 't1' };
+  it('stays the same while only the time text changes', () => {
+    expect(bannerSig({ banners: [a], more: 0 }, false)).toBe(bannerSig({ banners: [Object.assign({}, a, { title: 'x' })], more: 0 }, false));
+  });
+  it('changes when a banner, the overflow count or staleness changes', () => {
+    const base = bannerSig({ banners: [a], more: 0 }, false);
+    expect(bannerSig({ banners: [a, t], more: 0 }, false)).not.toBe(base);
+    expect(bannerSig({ banners: [], more: 0 }, false)).not.toBe(base);
+    expect(bannerSig({ banners: [a], more: 1 }, false)).not.toBe(base);
+    expect(bannerSig({ banners: [a], more: 0 }, true)).not.toBe(base);
   });
 });

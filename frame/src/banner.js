@@ -16,8 +16,28 @@ export function bannerText(b, nowMs, tz) {
   return b.title;
 }
 
+/** What decides the banner rows' structure. Same signature → only the text changes (see renderBanners). */
+export function bannerSig(res, stale) {
+  return res.banners.map((b) => b.kind + ':' + b.key + ':' + (b.color || '')).join('|') + '#' + res.more + (stale ? '!' : '');
+}
+
+/**
+ * Draws the banners. It runs every 2 s and on every screen change, so it rebuilds the rows only when the
+ * set of banners changes and otherwise updates their text in place. Rebuilding every time detached a
+ * button between touchstart and touchend, and the tap (e.g. Dismiss) was lost.
+ */
 export function renderBanners(root, res, nowMs, tz, stale) {
+  const sig = bannerSig(res, stale);
+  if (root.getAttribute('data-sig') === sig) {
+    const texts = root.querySelectorAll('.alert-text');
+    res.banners.forEach((b, i) => {
+      const t = bannerText(b, nowMs, tz) + (stale ? ' (may be out of date)' : '');
+      if (texts[i] && texts[i].textContent !== t) texts[i].textContent = t;
+    });
+    return;
+  }
   clear(root);
+  root.setAttribute('data-sig', sig);
   for (const b of res.banners) {
     const chip = h('span', 'alert-chip' + (b.kind === 'tasks' ? ' tasks' : ''));
     if (b.color) chip.style.backgroundColor = b.color;
