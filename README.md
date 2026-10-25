@@ -12,7 +12,7 @@ Calendar events, Denver weather from Open-Meteo, and the current week's private 
 - v1.2 (2026-10-24) removed v1's full-bleed layout A and the A/B tap swap. The v2 screens and menu rail
   are planned in [PLAN-v2.md](PLAN-v2.md).
 - v2 P1 (2026-10-24): tapping Home's weather or agenda opens the Weather (24 h, 10 days) or Calendar
-  (Agenda, Day, Week) screen; a tap on empty space on any screen shows the menu rail, which hides 10 s after the last touch. Settings (schedule, night dim,
+  (Agenda, Day, Week) screen; a tap on empty space on any screen shows the menu rail, which hides 10 s after the last touch (screens then use the full width; a tap along the left edge brings the rail back). Settings (schedule, night dim,
   idle timeout, weather place, calendars) live in D1 and can be changed on the frame or on /admin.
   Screens not built yet stay off the rail (`features` in `/api/state`).
 - v2 P1b (2026-10-24): Tasks (Google Tasks, up to 10 lists, check-off with a 10 s undo, "Due today" on

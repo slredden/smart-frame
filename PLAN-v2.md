@@ -150,12 +150,20 @@ scheduled(m, s):        # m = Denver minutes past midnight; s = settings.schedul
 | Home, **reflection** widget | Opens **Reflection** |
 | Home, anywhere else (photo, clock, date, the gaps between widgets) | Shows the rail for 10 s (`RAIL_PEEK_S`). Tapping again while it shows restarts the 10 s |
 | Rail button | Goes to that screen; the rail stays up 10 s more |
-| **Any screen**, empty space (no button, row or control under the finger; the rail's own 96 px column is always empty while it's hidden) | Shows the rail for 10 s |
+| **Any screen**, empty space (no button, row or control under the finger). Off Home this includes the transparent 32 px left-edge zone (`#rail-edge`, full height above the Menu zone), which never covers a control | Shows the rail for 10 s |
 | Any screen, a control (task checkbox, undo, Settings rows and buttons, calendar view toggles, banner buttons, anything in a sheet) | Works as usual. If the rail is up its 10 s restart; if it's hidden it stays hidden |
 | A tap during the 400 ms after waking | Ignored (debounce), so the waking tap can't also open a widget |
 
 - The rail appears as an overlay on the left 96 px of the photo, so Home's layout never moves. The photo
   stays 794 px wide.
+- Other screens (rail full width, 2026-10-24): while the rail is hidden the screen uses all 1280 px
+  (left 0, 48 px left padding = 32 px edge zone + 16 px gap). When the rail shows it **pushes** the screen
+  to left 96 / width 1184 rather than overlaying it, so the leftmost checkboxes, times and photo controls
+  stay visible and tappable during the 10 s the user is working. No transition (a left/width animation
+  relayouts every frame on Chrome 106). No strip is left after it hides.
+- The kiosk Menu zone (bottom-left 96×72) stays clear while the rail is hidden: a blank corner in the
+  view colour (`#rail-corner`) covers it on list screens so scrolled rows can't be tapped there. Photos
+  has no controls there and keeps its full-bleed picture.
 - The widgets get `data-go="weather|calendar|reflection"`. One delegated listener reads `closest('[data-go]')`,
   so there are no per-widget handlers.
 
@@ -197,6 +205,8 @@ onTap(target) : if screen == NIGHT → view = 'home', peek 10 s           # wake
 - A frame woken at 23:00 that is left alone falls back to the night clock after the idle timeout.
 - `version.js`'s quiet-moment check uses `awake()` instead of `overrideActive`, so a safe reload still
   waits until nobody is using the frame.
+- Layout follows `railShown` through the body's `rail-on` class: hidden = full-width screen plus the
+  32 px edge zone; shown = rail plus the screen pushed right 96 px (§2.3). Home never moves.
 
 ### 2.6 v1 code and tests removed or simplified (Phase 1, first commit)
 
@@ -1538,6 +1548,7 @@ Breakdown inside P1 and P1b:
 | P1 | 2026-10-24 | Menu rail (built screens only; unbuilt ones hidden by `features`), Home widget taps, 30 s rail peek, 10 min idle → Home/night. Calendar screen (Agenda default, Day, Week; Google colours; calendar picker on the frame), Weather screen (24 h, 10 days, no extra writes), Settings in D1 (schedule, night dim, idle, weather place by Open-Meteo geocoding, calendars; bounded, no lock-out, device-token writes capped at 60/h). Batched consent asks for `tasks`; missing it is the soft `tasks_scope_missing`. Calendar cache now starts at this week's Monday for the Week view |
 | P1b | 2026-10-24 | Tasks screen (Google Tasks, ≤ 10 lists picked on the frame or /admin, groups Overdue/Today/Upcoming/No date, check-off after a 10 s undo, guarded by the Worker: cached task in a shown list, `{status:"completed"}` only, 60 writes/h), Home "Due today" line, soft `tasks_lists_empty`/`tasks_stale`. Alerts computed on the frame: event banner per calendar (default 10 min), 9:00 tasks banner, chime 60 % with tap fallback, quiet = night, test chime in Settings › Alerts. Reflection screen (6 guides kept). Photos screen (toolbar, options in D1, favorites/hides in D1). Rail shows Tasks, Photos, Reflection; Controls hidden. Budgets: runbook-tasks.md |
 | Rail auto-hide | 2026-10-24 | The rail hides 10 s after the last touch on every screen (was Home only, 30 s). An empty-space tap shows it; controls work without toggling it and restart a showing rail. e2e: hide/reveal on all 7 screens, checkbox with the rail hidden and shown |
+| Rail full width | 2026-10-24 | Off Home, the screen uses all 1280 px while the rail is hidden (no 96 px strip); the rail pushes it right while shown. A transparent 32 px left-edge zone brings the rail back; a blank 96×72 corner keeps the kiosk Menu zone clear. e2e on all 6 non-Home screens: view at x=0, w=1280 when hidden and x=96 when shown, no control under the edge zone, edge tap reveals, checkbox/undo/Settings work with the rail hidden without showing it |
 
 ## 14. Stephen's manual steps
 
