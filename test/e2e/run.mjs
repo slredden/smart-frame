@@ -157,10 +157,10 @@ async function tapSel(page, sel) {
     const el = document.querySelector(s);
     if (!el) return null;
     const b = el.getBoundingClientRect();
-    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width };
   }, sel);
-  if (!box) {
-    failures.push('tap: ' + sel + ' not found');
+  if (!box || !box.w) {
+    failures.push('tap: ' + sel + (box ? ' is hidden' : ' not found'));
     return;
   }
   await page.touchscreen.tap(box.x, box.y);
@@ -168,6 +168,18 @@ async function tapSel(page, sel) {
 }
 
 const bodyOf = (page) => page.evaluate(() => document.body.className);
+
+/** Empty space on every screen: the rail's own 96 px column, mid-height (clear of the Menu zone). */
+const EMPTY = { x: 48, y: 400 };
+
+/** A rail item, after an empty-space tap to show the rail if it has hidden (10 s after the last touch). */
+async function railTap(page, view) {
+  if (!(await bodyOf(page)).split(/\s+/).includes('rail-on')) {
+    await page.touchscreen.tap(EMPTY.x, EMPTY.y);
+    await sleep(550);
+  }
+  await tapSel(page, '[data-rail="' + view + '"]');
+}
 const textOf = (page, sel) => page.evaluate((s) => (document.querySelector(s) || {}).textContent || '', sel);
 const countOf = (page, sel) => page.evaluate((s) => document.querySelectorAll(s).length, sel);
 
@@ -236,26 +248,26 @@ for (const c of cases) {
   expectBody('home start', await bodyOf(page), 'screen-home', 'rail-on');
   await tapSel(page, '[data-go="weather"]');
   expectBody('weather widget', await bodyOf(page), 'screen-weather');
-  await tapSel(page, '[data-rail="home"]');
+  await railTap(page, 'home');
   expectBody('rail home', await bodyOf(page), 'screen-home');
   await tapSel(page, '[data-go="calendar"]');
   expectBody('agenda widget', await bodyOf(page), 'screen-calendar');
-  await tapSel(page, '[data-rail="home"]');
-  await sleep(31000); // let the rail peek from the Home tap run out
+  await railTap(page, 'home');
+  await sleep(10500); // let the rail from the rail tap run out (10 s)
   expectBody('peek ends', await bodyOf(page), 'screen-home', 'rail-on');
   await page.touchscreen.tap(400, 300);
   await sleep(550);
   expectBody('photo tap', await bodyOf(page), 'rail-on');
-  await tapSel(page, '[data-rail="home"]');
+  await railTap(page, 'home');
   await tapSel(page, '[data-go="reflection"]');
   expectBody('reflection widget', await bodyOf(page), 'screen-reflection');
-  await tapSel(page, '[data-rail="home"]');
+  await railTap(page, 'home');
   const dueLine = await textOf(page, '[data-bind="tasksLine"]');
   if (!/^Due today: /.test(dueLine)) failures.push('home: tasks line says "' + dueLine + '"');
   await page.touchscreen.tap(400, 300);
   await sleep(550);
   expectBody('photo tap', await bodyOf(page), 'rail-on');
-  await tapSel(page, '[data-rail="settings"]');
+  await railTap(page, 'settings');
   expectBody('rail settings', await bodyOf(page), 'screen-settings');
   console.log('home taps'.padEnd(18), 'ok');
   if (page.errors.length) failures.push('home taps: JS errors: ' + page.errors.join(' | '));
@@ -427,6 +439,63 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
   await page.close();
 }
 
+// Rail auto-hide: on every screen the rail hides 10 s after the last touch and an empty-space tap
+// brings it back; controls (task checkboxes) work without toggling it but restart a showing rail.
+{
+  const all = ['calendar', 'tasks', 'weather', 'photos', 'reflection', 'settings'];
+  const pages = [];
+  for (const scr of all) {
+    const page = await open({ screen: scr, at: AT });
+    expectBody('rail ' + scr + ' start', await bodyOf(page), 'rail-on');
+    pages.push([scr, page]);
+  }
+  const home = await open({ at: AT });
+  await home.touchscreen.tap(EMPTY.x, EMPTY.y);
+  await sleep(550);
+  expectBody('rail home empty tap', await bodyOf(home), 'rail-on');
+  pages.push(['home', home]);
+  await sleep(10600);
+  for (const [scr, page] of pages) {
+    expectBody('rail ' + scr + ' hides after 10 s', await bodyOf(page), 'screen-' + scr, 'rail-on');
+    const hit = await page.evaluate((p) => {
+      const el = document.elementFromPoint(p.x, p.y);
+      return el ? (el.closest('[data-act], [data-go], [data-rail], button, a[href], input, select, label, .tap-row') ? 'control ' + el.className : 'empty') : 'nothing';
+    }, EMPTY);
+    if (hit !== 'empty') failures.push('rail ' + scr + ': the empty-space spot is ' + hit);
+    await page.touchscreen.tap(EMPTY.x, EMPTY.y);
+    await sleep(550);
+    expectBody('rail ' + scr + ' empty tap', await bodyOf(page), 'rail-on');
+    expectBody('rail ' + scr + ' empty tap keeps screen', await bodyOf(page), 'screen-' + scr);
+    if (scr === 'tasks') await page.screenshot({ path: join(OUT, 'rail-reveal-tasks.png') });
+    if (scr !== 'tasks') await page.close();
+  }
+  // Tasks: a checkbox tap while the rail is hidden keeps it hidden and still checks the task.
+  const page = pages.find((p) => p[0] === 'tasks')[1];
+  await sleep(10600);
+  expectBody('tasks rail hidden', await bodyOf(page), 'screen-tasks', 'rail-on');
+  await page.screenshot({ path: join(OUT, 'rail-hidden-tasks.png') });
+  await tapSel(page, '.task-row .task-check');
+  expectBody('checkbox with rail hidden', await bodyOf(page), 'screen-tasks', 'rail-on');
+  if ((await countOf(page, '.task-check.on')) < 1) failures.push('rail: checkbox did not check while the rail was hidden');
+  await tapSel(page, '#toast .toast-btn'); // undo, so nothing is sent
+  expectBody('undo with rail hidden', await bodyOf(page), 'screen-tasks', 'rail-on');
+  // Rail shown: a checkbox tap at ~7 s restarts the 10 s, so the rail is still up at 12 s.
+  await page.touchscreen.tap(EMPTY.x, EMPTY.y);
+  await sleep(550);
+  expectBody('tasks rail shown', await bodyOf(page), 'rail-on');
+  await sleep(6500);
+  await tapSel(page, '.task-row .task-check');
+  expectBody('checkbox with rail shown', await bodyOf(page), 'rail-on');
+  await tapSel(page, '#toast .toast-btn');
+  await sleep(3500); // ~11.6 s after the empty tap, ~4.5 s after the checkbox
+  expectBody('checkbox restarted the rail timer', await bodyOf(page), 'rail-on');
+  await sleep(6500);
+  expectBody('rail hides 10 s after the last control tap', await bodyOf(page), 'screen-tasks', 'rail-on');
+  console.log('rail auto-hide'.padEnd(18), 'ok (' + pages.length + ' screens)');
+  for (const [, p] of pages) if (p.errors && p.errors.length) failures.push('rail auto-hide: JS errors: ' + p.errors.join(' | '));
+  await page.close();
+}
+
 // Alerts: the banner chimes once, Dismiss keeps it gone, Open goes to Calendar; Settings › Alerts test chime.
 {
   const page = await open({ screen: 'home', at: '2026-10-24T14:52:00Z' });
@@ -489,7 +558,9 @@ const plays = (page) => page.evaluate(() => window.__plays.slice());
 {
   const page = await open({ screen: 'calendar', at: AT, extra: '&idle=0.05' });
   await sleep(4500);
-  expectBody('idle', await bodyOf(page), 'screen-home', 'rail-on');
+  expectBody('idle', await bodyOf(page), 'screen-home');
+  await sleep(6200); // the rail from opening the screen hides 10 s after it
+  expectBody('idle rail', await bodyOf(page), 'screen-home', 'rail-on');
   console.log('idle'.padEnd(18), 'ok');
   await page.close();
 }

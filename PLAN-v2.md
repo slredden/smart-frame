@@ -18,7 +18,8 @@ so. **v2 does change one:** the A/B layouts and the A/B tap swap are removed (§
 Decided by Stephen through Chief on 2026-10-24, and replacing the first draft of this plan:
 - **One Home layout.** The full-bleed photo layout with the corner card (v1 "A") and the A/B tap swap
   are **removed**. Home is the v1 split screen (v1 "B"): photo on the left, info column on the right.
-- On Home, tapping a widget opens its screen, and tapping anywhere else shows the menu rail for 30 s.
+- On Home, tapping a widget opens its screen. On every screen, tapping empty space shows the menu rail; it
+  hides 10 s after the last touch (rail auto-hide, 2026-10-24).
 - New screens: Calendar, Tasks, Weather, Photos, Reflection, Controls (the screen first drafted as "House"), and Settings.
 - Across all screens: **alerts** (a banner plus an optional chime before events and for tasks due) and
   **brightness** (manual, or auto from the light sensor; the auto part needs a kiosk change, §10).
@@ -143,12 +144,14 @@ scheduled(m, s):        # m = Denver minutes past midnight; s = settings.schedul
 
 | Where and when | What a tap does |
 | --- | --- |
-| **Night clock** (any spot) | **Wakes to Home with the rail showing for 30 s.** It never opens a widget, even if it lands where a widget would be |
+| **Night clock** (any spot) | **Wakes to Home with the rail showing for 10 s.** It never opens a widget, even if it lands where a widget would be |
 | Home, **weather** widget (now, high/low, 3-day row) | Opens **Weather** |
 | Home, **agenda** widget (all-day line, "Today", rows, "Nothing else today. Next: …") | Opens **Calendar** (agenda view, today) |
 | Home, **reflection** widget | Opens **Reflection** |
-| Home, anywhere else (photo, clock, date, the gaps between widgets) | Shows the rail for 30 s (`RAIL_PEEK_S`). Tapping again while it shows restarts the 30 s |
-| Rail button | Goes to that screen |
+| Home, anywhere else (photo, clock, date, the gaps between widgets) | Shows the rail for 10 s (`RAIL_PEEK_S`). Tapping again while it shows restarts the 10 s |
+| Rail button | Goes to that screen; the rail stays up 10 s more |
+| **Any screen**, empty space (no button, row or control under the finger; the rail's own 96 px column is always empty while it's hidden) | Shows the rail for 10 s |
+| Any screen, a control (task checkbox, undo, Settings rows and buttons, calendar view toggles, banner buttons, anything in a sheet) | Works as usual. If the rail is up its 10 s restart; if it's hidden it stays hidden |
 | A tap during the 400 ms after waking | Ignored (debounce), so the waking tap can't also open a widget |
 
 - The rail appears as an overlay on the left 96 px of the photo, so Home's layout never moves. The photo
@@ -180,11 +183,12 @@ scheduled(m, s):        # m = Denver minutes past midnight; s = settings.schedul
 state = { view: 'home', lastTouchMono: null, peekUntilMono: 0 }
 awake(now)    = lastTouchMono != null && 0 <= now - lastTouchMono < idleMs
 screen(now)   = awake(now) ? state.view : scheduled(denverMinutes, schedule)   # HOME or NIGHT
-railShown(now)= screen(now) != NIGHT && (state.view != 'home' || now < peekUntilMono)
-onTap(target) : if screen == NIGHT → view = 'home', peek 30 s           # wake only
-                elif target is rail item → view = item
-                elif view == 'home' and target has data-go → view = data-go
-                elif view == 'home' → peek 30 s
+railShown(now)= screen(now) != NIGHT && now < peekUntilMono                # every screen
+onTap(target) : if screen == NIGHT → view = 'home', peek 10 s           # wake only
+                elif target is rail item (rail up) → view = item, peek 10 s
+                elif view == 'home' and target has data-go → view = data-go, peek 10 s if up
+                elif target is a control → peek 10 s if up (never shows it)
+                else (empty space, any screen) → peek 10 s
                 lastTouchMono = now
 ```
 
@@ -935,6 +939,7 @@ Breakdown inside P1 and P1b:
 | F | 2026-10-24 | §8.5 freshness codes in `/api/health`, runbook-health codes. The §8.4 routine is Chief's |
 | P1 | 2026-10-24 | Menu rail (built screens only; unbuilt ones hidden by `features`), Home widget taps, 30 s rail peek, 10 min idle → Home/night. Calendar screen (Agenda default, Day, Week; Google colours; calendar picker on the frame), Weather screen (24 h, 10 days, no extra writes), Settings in D1 (schedule, night dim, idle, weather place by Open-Meteo geocoding, calendars; bounded, no lock-out, device-token writes capped at 60/h). Batched consent asks for `tasks`; missing it is the soft `tasks_scope_missing`. Calendar cache now starts at this week's Monday for the Week view |
 | P1b | 2026-10-24 | Tasks screen (Google Tasks, ≤ 10 lists picked on the frame or /admin, groups Overdue/Today/Upcoming/No date, check-off after a 10 s undo, guarded by the Worker: cached task in a shown list, `{status:"completed"}` only, 60 writes/h), Home "Due today" line, soft `tasks_lists_empty`/`tasks_stale`. Alerts computed on the frame: event banner per calendar (default 10 min), 9:00 tasks banner, chime 60 % with tap fallback, quiet = night, test chime in Settings › Alerts. Reflection screen (6 guides kept). Photos screen (toolbar, options in D1, favorites/hides in D1). Rail shows Tasks, Photos, Reflection; Controls hidden. Budgets: runbook-tasks.md |
+| Rail auto-hide | 2026-10-24 | The rail hides 10 s after the last touch on every screen (was Home only, 30 s). An empty-space tap shows it; controls work without toggling it and restart a showing rail. e2e: hide/reveal on all 7 screens, checkbox with the rail hidden and shown |
 
 ## 14. Stephen's manual steps
 
@@ -991,7 +996,8 @@ Breakdown inside P1 and P1b:
   - Q11: assumed to be the calendar grant's account (his Workspace account); P1b checks this when it
     loads task lists.
   - Q12: the proposed alert defaults.
-- Rail on Home: hidden, and a tap shows it for 30 s.
+- Rail: hidden on every screen 10 s after the last touch; an empty-space tap shows it (2026-10-24; was
+  Home only, 30 s).
 - Rail order: 8 items, decided 2026-10-24 (§2.2).
 - Spotify Premium: yes.
 - Frame camera and microphone: there are none (§1.1).
