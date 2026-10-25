@@ -46,5 +46,7 @@
     "SPOTIFY_CLIENT_ID": "08de35418963430c97f285f96f2a202b",
     "ACCESS_AUD": "2e921b75e459c3ff59a6f6db9d971045a8bb8d89780841023c58f2fa7a9b90ed" // public AUD tag, not a secret. gitleaks:allow
   },
+  // Workers VPC service "ha" -> Home Assistant on reddencloud (127.0.0.1:8123) via private tunnel smart-frame-ha. PLAN-v2 §11.9.
+  "vpc_services": [{ "binding": "HA", "service_id": "01a174fd-761c-78e1-94e2-96b8056b3b5b", "remote": true }],
   "observability": { "enabled": true }
 }

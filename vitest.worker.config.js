@@ -20,6 +20,8 @@ export default defineConfig({
       const h = (s) => createHash('sha256').update(s).digest('hex');
       return {
         wrangler: { configPath: './worker/wrangler.jsonc' },
+        // Tests mock the HA binding; never open a remote proxy for the vpc_services binding.
+        remoteBindings: false,
         miniflare: {
           bindings: Object.assign({}, TEST_SECRETS, {
             HEALTH_TOKEN_HASH: h('test-health-token-0123456789'),
