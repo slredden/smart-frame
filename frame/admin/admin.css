@@ -5,6 +5,7 @@ section { border: 1px solid #111; border-radius: 8px; padding: 12px 18px; margin
 pre { white-space: pre-wrap; font-size: 14px; }
 a { color: #0b3d91; }
 .button, button { display: inline-block; border: 1px solid #111; border-radius: 6px; background: #fff; color: #111; padding: 6px 12px; font: inherit; text-decoration: none; cursor: pointer; }
+[hidden] { display: none !important; }
 code { word-break: break-all; }
 .cal-list { list-style: none; padding: 0; }
 .cal-list li { padding: 3px 0; }
@@ -13,4 +14,5 @@ code { word-break: break-all; }
 .set-table td { border-top: 1px solid #ccc; padding: 4px 8px 4px 0; vertical-align: top; }
 .wx-results { list-style: none; padding: 0; }
 .wx-results li { padding: 3px 0; }
+.ph-sets { font-size: 15px; }
 .cal-alert { margin-left: 14px; font-size: 15px; color: #444; }

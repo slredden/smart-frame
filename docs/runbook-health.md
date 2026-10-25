@@ -28,6 +28,9 @@ Alerting (`alert: true`):
 - `frame_never_seen`: no frame has paired yet. Expected until the frame is installed.
 - `grant_calendar_<status>` / `grant_photos_<status>`: a Google grant is missing or needs re-consent.
   Stephen fixes it at `/admin` → Google → Connect.
+- `photos_active_missing`: the live photo set has fewer photos in D1 than it should (`photos.missing` > 0).
+  The frame shows fewer photos. Stephen picks a new set, or uses /admin › Photos › **Restore previous set**
+  (runbook-photos.md).
 - `grant_spotify_needs_reconsent` (Spotify refused the refresh token) and `spotify_reauth_due` (day 168 of
   Spotify's 6-month sign-in): Stephen reconnects at `/admin` → Spotify (runbook-controls.md).
 
@@ -53,7 +56,7 @@ was published:
   count until its start date.
 
 `reflection` in the JSON: `{currentWeek, weekly: {start, ageDays, stale}, monthly: {start, end,
-ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `spotify` is `{configured, status, connectedAt, reconnectBy}`. `controls` is `{connected, reachable, cameras}` (`reachable` is null until the first HA call). `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `frame.build` is the build the frame last reported, so it shows whether
+ageDays, stale}, publishedAt}`. `grants.calendar` is `{status, tasksScope}`. `spotify` is `{configured, status, connectedAt, reconnectBy}`. `controls` is `{connected, reachable, cameras}` (`reachable` is null until the first HA call). `tasks` is `{scope, lastFetch, lists, selected, listsEmpty}`. `photos` is `{lastSync, count, missing, cleanup: {queued, deletedToday}}`: `cleanup.queued` is how many old or failed photo sets wait for the cron to delete them and `deletedToday` the KV deletes used today (UTC, budget 900). Both are informational; a queue that stays above 0 for days only means the daily delete budget is pacing it. `frame.build` is the build the frame last reported, so it shows whether
 the frame reloaded after a deploy.
 
 ## Email template

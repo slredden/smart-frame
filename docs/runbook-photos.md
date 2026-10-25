@@ -24,11 +24,34 @@ writes); /admin → Photos → **Unhide all** brings hidden photos back.
   where it stopped.
 - At most one new 300-photo set per day.
 
+## Sets and cleanup (P1c)
+
+A set is `building` while it copies, then `active` when it goes live. At that moment the old active set
+becomes `previous`, and the old `previous` becomes `retired`. Only the active and previous sets are
+kept.
+
+- **Cleanup is automatic.** The 5-minute cron deletes the photos of `retired` sets, oldest first. It
+  also deletes failed or stuck copies: a set still `building` with a failed job, or with no live job
+  and over 24 hours old. Each photo is one KV delete. The Worker keeps its own budget of **900 deletes per UTC
+  day** (KV's limit is 1,000 and it doesn't share the write budget). It runs up to 3 sets × 50 keys per
+  run and resumes the next UTC day when the budget runs out. The D1 rows go only after all of a set's
+  KV keys are gone, and then the set is marked `purged`. An interrupted run picks up where it stopped.
+- **Never deleted:** the active set, the previous set, and a set that is still copying. Each batch
+  checks this again, so a set that changes state during a run is left alone.
+- **Restore previous set:** /admin › Photos › **Restore previous set**, then **Tap to confirm: swap
+  sets** (the confirm disappears after 8 s). The previous set becomes active and the active one becomes
+  previous in one step. The frame shows it within a minute. Pressing it again swaps back.
+- **The /admin line** shows the current and previous sets (photo count and date picked), how many sets
+  are queued for cleanup, deletes left today, and storage. New copies record each photo's size. Older
+  photos are estimated from the average size (250 KB if none is known), and the figure is then marked
+  "approx."
+- Health: `photos.cleanup {queued, deletedToday}` is informational. `photos_active_missing` alerts if
+  the live set has lost photos.
+
 ## Storage
 
-Old sets are retired, not deleted (deletes count against a separate 1,000/day limit, and nothing is
-deleted automatically). At ~250 KB a photo, a 300-photo set is about 75 MB, so the free 1 GB of KV
-holds about 13 sets. A manual purge of retired sets is a possible later admin action.
+At ~250 KB a photo, a 300-photo set is about 75 MB, so keeping two sets uses about 150 MB of the free
+1 GB of KV.
 
 ## If Google sign-in for photos breaks
 

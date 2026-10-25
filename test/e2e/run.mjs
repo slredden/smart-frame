@@ -856,6 +856,63 @@ for (const [name, at] of [['photos 22:00', '2026-10-25T03:59:56Z'], ['photos at 
   await page.close();
 }
 
+// P1c /admin › Photos: the sets line, and "Restore previous set" with its one-tap confirm, against a
+// mocked /admin/api. Arming alone sends nothing; confirming swaps; a second restore flips back.
+{
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e.message || e)));
+  const A = { setId: 'sAct01', count: 244, rows: 244, date: '2026-10-25T19:32:52.799Z' };
+  const B = { setId: 'sUW6jbMa7', count: 50, rows: 50, date: '2026-10-24T23:40:41.473Z' };
+  const state = { current: A, previous: B, queued: 4, deletedToday: 0, deletesLeft: 900, storage: { bytes: 307 * 250 * 1024, approx: true } };
+  const posts = [];
+  await page.setRequestInterception(true);
+  page.on('request', (r) => {
+    const u = new URL(r.url());
+    if (!u.pathname.startsWith('/admin/api/')) return r.continue();
+    const p = u.pathname.slice('/admin/api/'.length);
+    const reply = (o, status = 200) => r.respond({ status, contentType: 'application/json', body: JSON.stringify(o) });
+    if (r.method() === 'POST') posts.push(p);
+    if (p === 'photos' && r.method() === 'GET') return reply({ hidden: 2, sets: state });
+    if (p === 'photos/restore-previous' && r.method() === 'POST') {
+      const t = state.current;
+      state.current = state.previous;
+      state.previous = t;
+      return reply({ ok: true, sets: state });
+    }
+    if (p === 'status') return reply({ admin: 'stephen@example.com', health: { ok: true }, devices: [], job: null });
+    return reply({ error: 'not_mocked' }, 404);
+  });
+  await page.goto(base + '/admin/', { waitUntil: 'networkidle0' });
+  const line = () => page.$eval('#ph-sets', (e) => e.textContent);
+  const shown = (id) => page.$eval(id, (e) => e.getBoundingClientRect().height > 0);
+  const want = 'Current: 244 photos, Oct 25, 2026 · Previous: 50 photos, Oct 24, 2026 · Queued for cleanup: 4 set(s) · Deletes left today: 900 · Storage: approx. 75.0 MB';
+  const l1 = await line();
+  if (l1 !== want) failures.push('admin sets line: "' + l1 + '"');
+  if (!(await shown('#ph-restore'))) failures.push('admin: Restore previous set not shown');
+  if (await shown('#ph-restore-ok')) failures.push('admin: confirm shown before arming');
+  await page.click('#ph-restore');
+  await sleep(300);
+  if (posts.length) failures.push('admin: arming alone sent ' + posts.join(','));
+  if (!(await shown('#ph-restore-ok'))) failures.push('admin: confirm not shown after arming');
+  await page.click('#ph-restore-ok');
+  await sleep(500);
+  if (posts.join(',') !== 'photos/restore-previous') failures.push('admin: confirm posts ' + posts.join(','));
+  if (!(await line()).startsWith('Current: 50 photos, Oct 24, 2026 · Previous: 244 photos')) failures.push('admin after restore: "' + (await line()) + '"');
+  if (await shown('#ph-restore-ok')) failures.push('admin: confirm still shown after swap');
+  await page.click('#ph-restore');
+  await sleep(200);
+  await page.click('#ph-restore-ok');
+  await sleep(500);
+  if ((await line()) !== want) failures.push('admin flip back: "' + (await line()) + '"');
+  if (await shown('#ph-restore-ok')) failures.push('admin: confirm still shown after flip back');
+  await page.screenshot({ path: join(OUT, 'admin-photos.png'), fullPage: true });
+  if (errors.length) failures.push('admin page errors: ' + errors.join(' | '));
+  console.log('admin photos'.padEnd(18), 'ok');
+  await page.close();
+}
+
 await browser.close();
 server.close();
 console.log('browser:', version);

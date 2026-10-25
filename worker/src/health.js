@@ -3,6 +3,7 @@ import { ymdIn } from '../../shared/time.js';
 import { getMeta } from './db.js';
 import { grantStatuses, grantHasScope, TASKS_SCOPE } from './google/oauth.js';
 import { activeSet } from './photos.js';
+import { cleanupQueue, kvDeletesToday } from './cleanup.js';
 import { spotifyStatus } from './spotify/oauth.js';
 import { haConfigured, lastReachable } from './ha.js';
 import { loadGuides } from './reflection.js';
@@ -13,7 +14,7 @@ export const OFFLINE_MINUTES = 60;
 const ageMin = (iso, nowMs) => (iso ? Math.floor((nowMs - Date.parse(iso)) / 60000) : null);
 
 /** Problems that email Stephen; everything else is soft (shown on /api/health only). */
-export const isAlert = (p) => p.startsWith('frame_') || p.startsWith('grant_') || p === 'spotify_reauth_due';
+export const isAlert = (p) => p.startsWith('frame_') || p.startsWith('grant_') || p === 'spotify_reauth_due' || p === 'photos_active_missing';
 
 export async function buildHealth(env, nowMs = Date.now()) {
   const db = env.FRAME_DB;
@@ -43,6 +44,10 @@ export async function buildHealth(env, nowMs = Date.now()) {
   const haOn = haConfigured(env);
   const haOk = haOn ? await lastReachable(db) : null;
   const camCount = (await db.prepare('SELECT COUNT(*) AS n FROM controls_cams').first()).n;
+  // P1c: the cleanup queue (soft) and whether the active set lost any photo rows (alert).
+  const cleanup = { queued: (await cleanupQueue(db, nowMs)).length, deletedToday: await kvDeletesToday(db, nowMs) };
+  const activeRows = set ? (await db.prepare('SELECT COUNT(*) AS n FROM photos WHERE set_id = ?').bind(set.set_id).first()).n : 0;
+  const missing = set ? Math.max(0, set.count - activeRows) : 0;
 
   const problems = [];
   const offline = frameAge === null || frameAge > OFFLINE_MINUTES;
@@ -72,6 +77,8 @@ export async function buildHealth(env, nowMs = Date.now()) {
   // P2.1 (soft): the grant predates the Recent picker's optional scopes; Stephen reconnects on /admin.
   if (spotify.status === 'ok' && !spotify.recentScopes) problems.push('spotify_recent_needs_consent');
   // P2 Controls: all soft. Cameras are a nice-to-have; the frame says "Cameras offline" itself.
+  // P1c: the only photo alert. The cleanup never touches the active set, so this means data loss.
+  if (missing) problems.push('photos_active_missing');
   if (!haOn) problems.push('controls_not_connected');
   else if (haOk === false) problems.push('controls_ha_unreachable');
   else if (!camCount) problems.push('controls_no_cameras');
@@ -87,7 +94,7 @@ export async function buildHealth(env, nowMs = Date.now()) {
     grants: { calendar: { status: grants.calendar.status, tasksScope }, photos: { status: grants.photos.status } },
     controls: { connected: haOn, reachable: haOk, cameras: camCount },
     spotify: { configured: spotify.configured, status: spotify.status, connectedAt: spotify.connectedAt, reconnectBy: spotify.reconnectBy, recentScopes: spotify.recentScopes },
-    photos: { lastSync: photoSync, count: set ? set.count : 0 },
+    photos: { lastSync: photoSync, count: set ? set.count : 0, missing, cleanup },
     weather: { lastFetch: weatherOk, ageMinutes: wAge },
     calendar: { lastFetch: calendarOk },
     tasks: { scope: tasksScope, lastFetch: tasksOk || null, lists: tl ? tl.n : 0, selected: tl ? tl.s : 0, listsEmpty: !!tasksEmpty },
