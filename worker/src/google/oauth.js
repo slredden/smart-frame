@@ -4,9 +4,12 @@ import { encryptText, decryptText, pkcePair, randomToken } from '../crypto.js';
 import { nowIso } from '../db.js';
 import { log } from '../http.js';
 
+// calendar.events.readonly covers events.list on every calendar the account can see; listing the
+// calendars themselves (calendarList.list) needs calendar.calendarlist.readonly (v1.1).
+export const CALENDAR_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
 export const GRANTS = {
-  calendar: { scope: 'https://www.googleapis.com/auth/calendar.events.readonly' },
-  photos: { scope: 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly' },
+  calendar: { scopes: ['https://www.googleapis.com/auth/calendar.events.readonly', CALENDAR_LIST_SCOPE] },
+  photos: { scopes: ['https://www.googleapis.com/auth/photospicker.mediaitems.readonly'] },
 };
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -31,7 +34,7 @@ export async function startAuth(env, grant, origin, nowMs = Date.now()) {
     client_id: env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri(origin),
     response_type: 'code',
-    scope: GRANTS[grant].scope,
+    scope: GRANTS[grant].scopes.join(' '),
     access_type: 'offline',
     prompt: 'consent',
     include_granted_scopes: 'false',
@@ -53,7 +56,7 @@ async function saveTokens(env, grant, tok, nowMs, keepRefresh) {
        ON CONFLICT(name) DO UPDATE SET refresh_enc = excluded.refresh_enc, access_enc = excluded.access_enc, access_exp = excluded.access_exp,
        scope = excluded.scope, status = 'ok', updated_at = excluded.updated_at, last_error = NULL`,
     )
-    .bind(grant, refreshEnc, accessEnc, exp, tok.scope || GRANTS[grant].scope, nowIso(nowMs))
+    .bind(grant, refreshEnc, accessEnc, exp, tok.scope || GRANTS[grant].scopes.join(' '), nowIso(nowMs))
     .run();
 }
 
@@ -86,7 +89,7 @@ export async function finishAuth(env, url, { fetchImpl = fetch, nowMs = Date.now
   }
   const tok = await res.json();
   const scopes = String(tok.scope || '').split(/\s+/);
-  if (!scopes.includes(GRANTS[grant].scope)) return { ok: false, error: 'scope_missing', grant };
+  if (!GRANTS[grant].scopes.every((sc) => scopes.includes(sc))) return { ok: false, error: 'scope_missing', grant };
   if (!tok.refresh_token) return { ok: false, error: 'no_refresh_token', grant };
   await saveTokens(env, grant, tok, nowMs, null);
   log('oauth_connected', { grant });
@@ -145,6 +148,12 @@ export async function disconnect(env, grant, { fetchImpl = fetch, nowMs = Date.n
     .prepare(`UPDATE grants SET refresh_enc = NULL, access_enc = NULL, access_exp = NULL, status = 'disconnected', updated_at = ? WHERE name = ?`)
     .bind(nowIso(nowMs), grant)
     .run();
+}
+
+/** True when the stored grant was consented with `scope` (older v1 calendar grants lack the list scope). */
+export async function grantHasScope(db, grant, scope) {
+  const row = await db.prepare('SELECT scope, status FROM grants WHERE name = ?').bind(grant).first();
+  return !!(row && row.status === 'ok' && String(row.scope || '').split(/\s+/).includes(scope));
 }
 
 export async function grantStatuses(db) {

@@ -33,6 +33,17 @@
   </section>
 
   <section>
+    <h2>Calendars</h2>
+    <p>Choose which calendars on the Workspace account the frame shows (up to <span id="cal-max">25</span>).
+      Nothing selected means the primary calendar only.</p>
+    <p><button id="cal-sync" type="button">Load calendars from Google</button> <span id="cal-out"></span></p>
+    <form id="cal-form">
+      <ul id="cal-list" class="cal-list"></ul>
+      <button type="submit">Save selection</button>
+    </form>
+  </section>
+
+  <section>
     <h2>Photos</h2>
     <p>Starts a Google Photos picker session. Pick up to 300 photos from the album, then come back here.</p>
     <button id="pick" type="button">Pick new photos</button>

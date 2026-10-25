@@ -1,5 +1,6 @@
 // Pure helpers for the calendar slots (PLAN.md §9.3).
-import { eventTime } from './format.js';
+import { eventTime, shortDate } from './format.js';
+import { startOfDayUtc } from '../../shared/time.js';
 
 /**
  * The "Next" line for screen A.
@@ -17,7 +18,18 @@ export function nextLine(calendar, nowMs, tz) {
   }
   const t = calendar.tomorrowFirst;
   if (t && t.start) return 'Tomorrow ' + eventTime(t.start, tz) + ' · ' + t.title;
-  return '';
+  return aheadLine(calendar, tz);
+}
+
+/**
+ * v1.1 look-ahead, used only when today has nothing left and tomorrow has no timed event:
+ * 'Next: Sat, Nov 1, 9:00 AM · Title', or 'Next: Sat, Nov 1 · Title' for an all-day event.
+ */
+export function aheadLine(calendar, tz) {
+  const a = calendar && calendar.ahead;
+  if (!a || !a.start) return '';
+  if (a.allDay) return 'Next: ' + shortDate(startOfDayUtc(a.start, tz) + 12 * 3600000, tz) + ' · ' + a.title;
+  return 'Next: ' + shortDate(Date.parse(a.start), tz) + ', ' + eventTime(a.start, tz) + ' · ' + a.title;
 }
 
 /** The all-day top line: 'All day: A · B', or ''. */

@@ -6,3 +6,6 @@ pre { white-space: pre-wrap; font-size: 14px; }
 a { color: #0b3d91; }
 .button, button { display: inline-block; border: 1px solid #111; border-radius: 6px; background: #fff; color: #111; padding: 6px 12px; font: inherit; text-decoration: none; cursor: pointer; }
 code { word-break: break-all; }
+.cal-list { list-style: none; padding: 0; }
+.cal-list li { padding: 3px 0; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin: 0 6px; vertical-align: middle; border: 1px solid #111; }

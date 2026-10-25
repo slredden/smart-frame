@@ -22,6 +22,15 @@ describe('agenda', () => {
     expect(nextLine({ today: { allDay: [], timed: [] }, tomorrowFirst: null }, 0, TZ)).toBe('');
   });
 
+  it('looks ahead past tomorrow when today and tomorrow are empty (v1.1)', () => {
+    const empty = { today: { allDay: [], timed: [] }, tomorrowFirst: null };
+    const now = Date.parse('2026-10-24T20:00:00Z');
+    expect(nextLine(Object.assign({ ahead: { title: 'Dentist', start: '2026-11-03T16:00:00Z', allDay: false } }, empty), now, TZ)).toBe('Next: Tue, Nov 3, 9:00 AM · Dentist');
+    expect(nextLine(Object.assign({ ahead: { title: 'Trip', start: '2026-11-01', allDay: true } }, empty), now, TZ)).toBe('Next: Sun, Nov 1 · Trip');
+    // tomorrow still wins over the look-ahead
+    expect(nextLine(Object.assign({}, empty, { tomorrowFirst: { title: 'Run', start: '2026-10-25T14:30:00Z' }, ahead: { title: 'X', start: '2026-11-03T16:00:00Z' } }), now, TZ)).toBe('Tomorrow 8:30 AM · Run');
+  });
+
   it('all-day line', () => {
     expect(allDayLine(cal)).toBe('All day: Holiday · Trip');
     expect(allDayLine({ today: { allDay: [] } })).toBe('');
