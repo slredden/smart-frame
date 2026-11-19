@@ -20,6 +20,7 @@ import { spotifyRecent } from './spotify/recent.js';
 import { controlsState, camImage } from './controls.js';
 import { ymdIn } from '../../shared/time.js';
 import { runCleanup } from './cleanup.js';
+import { runHealthJob } from './healthjob.js';
 
 export async function route(request, env, deps = {}) {
   const url = new URL(request.url);
@@ -278,6 +279,12 @@ export async function runCron(env, nowMs = Date.now(), fetchImpl = fetch) {
     tasks: t.skipped ? 'skip' : t.ok ? (t.changed ? 'ok' : 'same') : t.reason || 'fail',
     cleanup: p.stopped + ':' + p.deleted,
   });
+  // Health mail is isolated so a provider outage cannot delay frame data or cleanup.
+  try {
+    await runHealthJob(env, nowMs, { fetchImpl });
+  } catch {
+    log('health_job_error');
+  }
 }
 
 export default {

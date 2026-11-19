@@ -1,7 +1,22 @@
-# Runbook: health check and alerts (Chief)
+# Runbook: health check and alerts
+
+The Worker runs its health job from the existing five-minute cron, once in each Denver slot from
+7 AM through 9 PM (every other hour). It stores the previous problem set and last alerted set in D1:
+the first bad slot warns silently, the next bad slot emails once, changed problems email again, and a
+later healthy slot sends one recovery. The GitHub Actions watchdog runs at the same cadence to detect
+an unavailable Worker; it alerts only after two failed scheduled runs and uses workflow history as state.
+
+Set Worker secrets `AGENTMAIL_API_KEY` and `ALERT_TO` through the manual `worker-secrets` workflow.
+The watchdog additionally needs repository secrets `HEALTH_TOKEN`, `AGENTMAIL_API_KEY`, and `ALERT_TO`.
+Set repository variable `WATCHDOG_ENABLED=true` to enable scheduled watchdog runs; unset it or change it
+to turn them off. The Worker job remains deployed, but removing the two mail secrets makes it record state
+and retry a needed notification without sending mail. Use **Run workflow** with an optional URL to test the
+watchdog without mail, or run the unit and Worker health-job tests locally.
 
 `GET /api/health` returns content-free JSON (no event titles, photo ids or reflection text). It needs
 the health bearer token; the Worker stores only its SHA-256 (`HEALTH_TOKEN_HASH`).
+The Worker job uses every code in its `problems` array for its two-strike state, including soft codes;
+the `alert` field below remains the older endpoint classification for a human or external monitor.
 
 ## Check
 
@@ -61,7 +76,5 @@ the frame reloaded after a deploy.
 
 ## Email template
 
-Subject: `Frame: <problem>`.
-Body: what's wrong in one line, when it started, and the fix: "Open
-https://smart-frame.sredden.workers.dev/admin and reconnect Google" for a grant, or "Check the frame
-is on and on Wi-Fi" for offline.
+Subjects are `Smart frame: alert` and `Smart frame: recovered`. Messages are short, content-free,
+and include one appropriate next step; they never include credentials or pairing links.
