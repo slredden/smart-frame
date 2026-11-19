@@ -101,12 +101,12 @@ describe('set-worker-secrets', async () => {
     GOOGLE_CLIENT_SECRET: 'fake-client-secret-0000',
   };
   const fakeJwt = ['eyJhbGciOiJIUzI1NiJ9', 'x'.repeat(80), 'y'.repeat(43)].join('.');
-  const optional = { HA_TOKEN: fakeJwt, SPOTIFY_CLIENT_SECRET: 'f'.repeat(32) };
+  const optional = { HA_TOKEN: fakeJwt, SPOTIFY_CLIENT_SECRET: 'f'.repeat(32), AGENTMAIL_API_KEY: 'a'.repeat(20), ALERT_TO: 'one@example.com,two@example.org' };
   it('accepts a complete, well-formed set; optional Controls secrets are skipped while unset', () => {
     const { values, problems, skipped } = collectSecrets(good);
     expect(problems).toEqual([]);
     expect(Object.keys(values).sort()).toEqual(Object.keys(SECRETS).sort());
-    expect(skipped).toEqual(['HA_TOKEN', 'SPOTIFY_CLIENT_SECRET']);
+    expect(skipped).toEqual(['AGENTMAIL_API_KEY', 'ALERT_TO', 'HA_TOKEN', 'SPOTIFY_CLIENT_SECRET']);
   });
   it('includes the optional secrets when present', () => {
     const { values, problems, skipped } = collectSecrets({ ...good, ...optional });

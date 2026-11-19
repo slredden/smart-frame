@@ -1,0 +1,37 @@
+# Second monitor: pings the Worker so an outage of the Worker itself still reaches Stephen (docs/runbook-health.md).
+# The cron below is UTC: about 7:17am-9:17pm MST, and one hour later during daylight time.
+name: health-watchdog
+on:
+  schedule:
+    - cron: "17 14,16,18,20,22,0,2,4 * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Optional health URL for testing
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: health-watchdog
+  cancel-in-progress: false
+jobs:
+  watchdog:
+    if: github.event_name != 'schedule' || vars.WATCHDOG_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    env:
+      HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+      AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+      ALERT_TO: ${{ secrets.ALERT_TO }}
+      GH_TOKEN: ${{ github.token }}
+      INPUT_URL: ${{ inputs.url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: node tools/health-watchdog.mjs

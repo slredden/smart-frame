@@ -37,6 +37,8 @@ npm run e2e         # Chromium 106 screenshots and tap tests of every screen int
 
 Runbooks for Chief and for operating the frame are in [docs/](docs/).
 
+- Health checks and alerting: [docs/runbook-health.md](docs/runbook-health.md)
+
 - Build plan, including the design decisions: [PLAN.md](PLAN.md) (see [§1 Design](PLAN.md#1-design-decisions-fixed))
 - Design page (layout mockups and schedule): [Smart frame layout](https://cursor.com/canvas/store-593ad622-8000-409c-abb6-7c70dfc329fd/4e001d81-7509-463f-a5a4-a76cd8b088f3)
 - Reference implementation: [wesbos/photo-frame-dashboard](https://github.com/wesbos/photo-frame-dashboard) (MIT)

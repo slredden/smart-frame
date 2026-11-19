@@ -52,6 +52,12 @@ export const SECRETS = {
  * HA long-lived tokens are JWTs; Spotify client secrets are 32 hex characters.
  */
 export const OPTIONAL = {
+  AGENTMAIL_API_KEY: (v) =>
+    v.length >= 16 && !/\s/.test(v) ? null : "must be at least 16 characters with no whitespace",
+  ALERT_TO: (v) =>
+    v.split(',').map((e) => e.trim()).filter(Boolean).length && v.split(',').map((e) => e.trim()).filter(Boolean).every((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
+      ? null
+      : "must be comma-separated email addresses",
   HA_TOKEN: (v) =>
     /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v) && v.length >= 100
       ? null

@@ -515,6 +515,10 @@ form on the same endpoint.
 
 ## 13. Observability
 
+The Worker health job now runs from the existing cron in selected Denver daytime slots, stores its
+two-strike state in D1 meta, and mails only on alert or recovery. `health-watchdog.yml` independently
+checks whether the Worker can answer `/api/health`; see `docs/runbook-health.md` for operation and disable switches.
+
 - `observability.enabled = true` in `wrangler.jsonc` (Workers Logs). Logs are **structured and
   content-free**: route, status, device id, duration, cache age, and Google error codes. Event titles,
   reflection text, photo ids, tokens and Google response bodies are never logged. A unit test feeds
